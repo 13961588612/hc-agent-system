@@ -15,6 +15,9 @@ export interface EnvConfig {
   langsmithApiKey?: string;
   langsmithTracing?: string;
   langchainProject?: string;
+
+  /** 入口模式：`cli`（默认）、`wecom-http` 等，见 `docs/channel-wecom.md` */
+  channelMode?: string;
 }
 
 export function loadEnvConfig(): EnvConfig {
@@ -27,6 +30,8 @@ export function loadEnvConfig(): EnvConfig {
     
     langsmithApiKey: process.env.LANGSMITH_API_KEY,
     langsmithTracing: process.env.LANGSMITH_TRACING,
-    langchainProject: process.env.LANGCHAIN_PROJECT
+    langchainProject: process.env.LANGCHAIN_PROJECT,
+
+    channelMode: process.env.CHANNEL_MODE
   };
 }

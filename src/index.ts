@@ -1,26 +1,23 @@
-import { createDbClientManagerFromConfig } from "./config/createDbClientManagerFromConfig.js";
-import { initDbClientManager } from "./config/dbAppContext.js";
-import { loadEnvConfig } from "./config/env.js";
-import { loadDatabasesConfig } from "./config/loadDatabasesConfig.js";
-import { discoverAndRegisterGuides } from "./guides/scanGuides.js";
+import { initCore } from "./bootstrap/initCore.js";
+import { loadWeComConfigFromEnv } from "./channels/wecom/wecomEnv.js";
+import { startWeComHttpServer } from "./channels/wecom/wecomHttpServer.js";
 import { runOrchestratorGraph } from "./graph/orchestrator/orchestratorGraph.js";
-import { createDefaultDbClientManager } from "./infra/dbClientManager.js";
 
 async function main() {
-  const env = loadEnvConfig();
+  const { env } = await initCore();
+  const channelMode = env.channelMode ?? process.env.CHANNEL_MODE ?? "cli";
 
-  const dbConfig = await loadDatabasesConfig();
-  const dbManager = dbConfig
-    ? createDbClientManagerFromConfig(dbConfig)
-    : createDefaultDbClientManager();
-  initDbClientManager(dbManager);
-  console.log(`[Db] 已注册连接: ${dbManager.listNames().join(", ")}`);
-
-  const guidesResult = await discoverAndRegisterGuides();
-  if (guidesResult.errors.length > 0) {
-    console.warn("[Guides] 扫描提示:", guidesResult.errors);
+  if (channelMode === "wecom-http") {
+    const wecom = loadWeComConfigFromEnv();
+    if (!wecom) {
+      console.error(
+        "[WeCom] CHANNEL_MODE=wecom-http 但企微配置不完整（需 WECOM_TOKEN、WECOM_ENCODING_AES_KEY、WECOM_CORP_ID）"
+      );
+      process.exit(1);
+    }
+    startWeComHttpServer(wecom, env);
+    return;
   }
-  console.log(`[Guides] 已加载 SkillGuide: ${guidesResult.discovered} 条`);
 
   const result = await runOrchestratorGraph(
     {

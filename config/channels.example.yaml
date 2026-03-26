@@ -1,0 +1,12 @@
+# 渠道配置示例（可选）
+# 复制为 channels.yaml 并按环境填写。当前企业微信渠道主要仍从进程环境变量读取，
+# 见 docs/channel-wecom.md 与 src/channels/wecom/wecomEnv.ts。
+#
+# 含密钥的文件请勿提交 Git（见仓库根目录 .gitignore）。
+
+wecom:
+  enabled: false
+  # 与后台「接收消息」URL 路径一致，对应 WECOM_CALLBACK_PATH
+  callbackPath: "/wecom/callback"
+  # 以下建议仅通过环境变量注入，勿在此文件写明文 Secret
+  # corpId: "${WECOM_CORP_ID}"
