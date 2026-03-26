@@ -1,0 +1,33 @@
+---
+description: hc-agent-system 项目架构、阶段规划与代码约定（持久记忆）
+alwaysApply: true
+---
+
+# hc-agent-system
+
+多智能体编排（LangGraph + TypeScript ESM）。`thread_id` 放在 `invoke` 的 `config.configurable.thread_id`，不在 input 里。
+
+## 文档阶段顺序
+
+1. 阶段一：`docs/design-phase1-minimal-loop.md`（主 Orchestrator + DataQuery 最小闭环）
+2. 阶段二：`docs/design-phase2-skills-disclosure.md` + `docs/skills-dynamic-disclosure-spec.md`（SkillRegistry、约定式发现、`get-skills-info` / `invoke-skill`）
+3. 阶段三：`docs/design-phase3-analysis.md`（DataAnalysisAgent、「查+分析」）
+4. 协作：`docs/context-collaboration-spec.md`（大结果走 artifacts，State 只存索引）
+
+## 协议与类型
+
+- 主↔子：`SubTaskEnvelope` / `SubTaskResult`（`contracts/types.ts`）
+- 主图 State：`src/contracts/schemas.ts`（`OrchestratorStateSchema` 等）
+- 技能：`SkillDef` / `SkillContext`（`src/skills/types.ts`）；`skillDef` 从各 `*Skill.ts` 导出；`id` 如 `sql-query`、`invoke-skill`
+
+## 技能与基础设施
+
+- SQL：`src/skills/core/sqlQuerySkill.ts`（`runSqlQuerySkill` + `skillDef`）
+- 多 DB：`DbClientManager`（`src/infra/dbClientManager.ts`）；`SkillContext` 支持 `dbClient` 优先，其次 `dbClientManager` + `dbClientKey`（默认 `default`）
+- 产物：`artifacts/{threadId}/{taskId}/`（`src/artifacts/fsArtifacts.ts`）
+
+## 实现约定
+
+- 新代码与注释默认使用**简体中文**（与用户沟通一致）
+- 仅改任务相关文件；避免无关重构
+- 路径引用：`import` 使用 `.js` 扩展（NodeNext ESM）

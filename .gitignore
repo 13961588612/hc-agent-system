@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# TypeScript build
+dist/
+
+# Environment (keep .env.example if you add one)
+.env
+.env.local
+.env.*.local
+
+# Runtime artifacts (fsArtifacts 落盘)
+artifacts/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+
+# Optional: test coverage
+coverage/
