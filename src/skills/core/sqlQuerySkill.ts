@@ -1,3 +1,4 @@
+import { tryGetDbClientManager } from "../../config/dbAppContext.js";
 import {
   DummyDbClient,
   type DbClient,
@@ -8,7 +9,8 @@ import type { SkillContext, SkillDef } from "../types.js";
 function resolveDbClient(ctx: SkillContext | undefined): DbClient {
   if (ctx?.dbClient) return ctx.dbClient;
   const key = ctx?.dbClientKey ?? "default";
-  const fromManager = ctx?.dbClientManager?.tryGet(key);
+  const fromManager =
+    ctx?.dbClientManager?.tryGet(key) ?? tryGetDbClientManager()?.tryGet(key);
   if (fromManager) return fromManager;
   return new DummyDbClient();
 }

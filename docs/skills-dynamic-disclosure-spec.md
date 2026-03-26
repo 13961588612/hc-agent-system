@@ -92,6 +92,21 @@ interface SkillContext {
 | **L1：元数据** | id、name、description、exampleQueries | 向量检索、Agent 初选 |
 | **L2：完整** | 含 inputSchema、run | 选中后加载执行 |
 
+### 3.3 SkillGuide（说明类，非可执行）
+
+与 **`SkillDef`（可执行技能）** 区分，**SkillGuide** 只提供「如何使用基础技能、何时编排」的说明，**不包含 `run`**，不进入 `invoke-skill` 的可执行白名单。
+
+| 维度 | 可执行技能 | SkillGuide |
+|------|------------|------------|
+| 位置 | `src/skills/**/*.ts`（随版本构建） | 仓库根目录 **`skills/guides/`**（Markdown，部署后可挂载增删） |
+| 作用 | 真实调用 DB/API 等 | 教 Agent 选技能、填参、多步顺序 |
+| 注册 | `SkillRegistry` | **`GuideRegistry`**（`src/guides/guideRegistry.ts`）+ 启动扫描（`discoverAndRegisterGuides`） |
+| id 建议 | `sql-query`、`member-profile-query` | `guide-*` 前缀，避免与可执行 id 冲突 |
+
+**文件格式**：推荐 **Markdown + YAML Frontmatter**（见仓库 `skills/guides/README.md`）。
+
+**与动态披露**：Guide 仅披露 **L1 级文本**（标题、摘要、标签）；**无 L2 执行**。Agent 流程建议：**先检索/阅读 Guide → 再 `get-skills-info` / `invoke-skill` 调可执行技能**。
+
 ---
 
 ## 四、实现方案
@@ -385,6 +400,7 @@ debug: {
 
 ## 七、参考
 
+- `skills/README.md`：仓库根目录 **SkillGuide** 与 `src/skills` 的分工
 - `docs/design-phase2-skills-disclosure.md`：仓库阶段二里程碑与 **基础技能**（含 `get-skills-info`、`invoke-skill`）规划
 - `docs/overview-architecture.md`：四层架构、技能分层
 - `docs/context-collaboration-spec.md`：主/子协作、Artifacts

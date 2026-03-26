@@ -303,3 +303,13 @@ Prompt 里永远只有：
 完全可控。
 
 
+---
+六、SkillGuide 与仓库根目录 `skills/`（说明类）
+
+与 **`src/skills/` 里可执行 SkillDef** 不同，**SkillGuide** 只放「如何用技能」的说明（Markdown），**不执行 run**，适合**部署后动态追加**。
+
+- 目录约定与格式：仓库根目录 [`skills/README.md`](../skills/README.md)、[`skills/guides/README.md`](../skills/guides/README.md)
+- 设计说明：`design-phase2-skills-disclosure.md` §2.5、`skills-dynamic-disclosure-spec.md` §3.3
+- Agent 建议流程：先读 Guide / 检索说明 → 再 `invoke-skill` 调 `sql-query` 等可执行技能
+
+

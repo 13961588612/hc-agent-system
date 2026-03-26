@@ -9,6 +9,10 @@ dist/
 .env.local
 .env.*.local
 
+# 本地数据库配置（含连接信息，勿提交）
+config/databases.yaml
+config/databases.local.yaml
+
 # Runtime artifacts (fsArtifacts 落盘)
 artifacts/
 

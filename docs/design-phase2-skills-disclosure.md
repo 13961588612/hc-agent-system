@@ -4,7 +4,7 @@
 
 **规范依据（接口与实现细节以规范为准）**：
 
-- `docs/skills-dynamic-disclosure-spec.md` — SkillDef、Registry、披露层级 L0/L1/L2、分层路由流程
+- `docs/skills-dynamic-disclosure-spec.md` — SkillDef、Registry、**SkillGuide**、披露层级 L0/L1/L2、分层路由流程
 - `docs/context-collaboration-spec.md` — 主/子协作、大结果不落 State
 - `docs/overview-architecture.md` — 能力层、技能分层
 
@@ -108,6 +108,21 @@
 | `knowledge-base-query` | 向量库检索 / RAG（与 `skill-knowledge-base` 对齐） | 接入向量库后 |
 | `load-skills` / 仅运维调用 `discoverAndRegisterSkills` | 热重载磁盘发现（**不推荐**作为默认用户侧 tool；见前文架构讨论） | 开发调试或受控运维场景 |
 
+#### 2.5 SkillGuide 与仓库根目录 `skills/`（说明类，部署可扩展）
+
+与 **`src/skills/` 内可执行 `SkillDef`** 并列，增加 **SkillGuide**：只含使用说明与编排提示，**不执行 `run`**，不通过 `invoke-skill` 当工具执行。
+
+| 项 | 说明 |
+|----|------|
+| **目录** | 仓库根目录 **`skills/`**（与 `src/skills` 区分）；详见 [`skills/README.md`](../../skills/README.md) |
+| **主内容** | **`skills/guides/`**：按业务分子目录存放 `.md`（Frontmatter + 正文） |
+| **可选** | **`skills/playbooks/`**：多步编排说明（纯文档，实现阶段再接入加载器） |
+| **首个示例** | [`skills/guides/member/member-profile-query.md`](../../skills/guides/member/member-profile-query.md) |
+| **运行时** | 已实现：`src/guides/guideRegistry.ts`、`scanGuides.ts`；启动见 `src/index.ts`；可选环境变量 `GUIDES_DIR` |
+| **后续** | 与 `get-skills-info` 合并展示、向量索引 Guide 正文（里程碑另排） |
+
+**原则**：可执行技能随发版；Guide 可在部署后往挂载目录追加 Markdown，无需重新编译。
+
 ---
 
 ### 三、实施里程碑（建议顺序）
@@ -160,12 +175,14 @@
 | 基础技能 `get-skills-info`、`invoke-skill` | 元数据查询与统一执行入口，均以 `skillDef` 注册 |
 | DataQuery 路径改造 | 经 Registry 执行，usedSkills 运行时收集 |
 | 规范更新 | `skills-dynamic-disclosure-spec.md` §六 与本文档阶段编号一致 |
+| 根目录 `skills/guides` 与示例 Guide | 说明类 SkillGuide，与可执行技能分离 |
 
 ---
 
 ### 六、参考文档
 
-- `docs/skills-dynamic-disclosure-spec.md` — 完整契约与代码示例  
+- `docs/skills-dynamic-disclosure-spec.md` — 完整契约与代码示例（含 §3.3 SkillGuide）  
+- `skills/README.md` — 根目录 `skills/` 说明  
 - `docs/skills-use.md` — 大规模技能与分层策略  
 - `docs/design-phase1-minimal-loop.md` — 阶段一前置  
 - `docs/design-phase3-analysis.md` — 阶段三（数据分析子 Agent）

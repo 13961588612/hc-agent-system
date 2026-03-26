@@ -22,9 +22,12 @@ alwaysApply: true
 
 ## 技能与基础设施
 
+- 可执行技能：`src/skills/**/*.ts`（`SkillDef` + `skillDef`）
+- SkillGuide（仅说明、部署可扩展）：仓库根目录 `skills/guides/*.md`；运行时 `src/guides/`（`discoverAndRegisterGuides`、`GUIDES_DIR`）
 - SQL：`src/skills/core/sqlQuerySkill.ts`（`runSqlQuerySkill` + `skillDef`）
 - 多 DB：`DbClientManager`（`src/infra/dbClientManager.ts`）；`SkillContext` 支持 `dbClient` 优先，其次 `dbClientManager` + `dbClientKey`（默认 `default`）
 - 产物：`artifacts/{threadId}/{taskId}/`（`src/artifacts/fsArtifacts.ts`）
+- 部署配置：根目录 `config/`（见 `config/README.md`）；多数据源 `config/databases.yaml`（模板 `databases.example.yaml`），环境变量 `DATABASES_CONFIG` 可覆盖路径；`getDbClientManager()` / `sql-query` 解析连接
 
 ## 实现约定
 
