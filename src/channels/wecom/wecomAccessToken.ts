@@ -3,7 +3,7 @@ let cached: { token: string; expiresAt: number } | null = null;
 
 export async function getWeComAccessToken(corpId: string, corpSecret: string): Promise<string> {
   const now = Date.now();
-  if (cached && now < cached.expiresAt - 120_000) {
+  if (cached && now < cached.expiresAt - 1800_000) {
     return cached.token;
   }
   const url = `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${encodeURIComponent(corpId)}&corpsecret=${encodeURIComponent(corpSecret)}`;

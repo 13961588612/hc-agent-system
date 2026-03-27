@@ -1,9 +1,9 @@
-import { createDbClientManagerFromConfig } from "../config/createDbClientManagerFromConfig.js";
+import { createDbClientManager } from "../infra/dbClientFactory.js";
 import { initDbClientManager } from "../config/dbAppContext.js";
-import { loadEnvConfig, type EnvConfig } from "../config/env.js";
-import { loadDatabasesConfig } from "../config/loadDatabasesConfig.js";
+import { loadEnvConfig, type EnvConfig } from "../config/envConfig.js";
+import { loadDatabasesConfig } from "../config/databasesConfig.js";
 import { discoverAndRegisterGuides } from "../guides/scanGuides.js";
-import { createDefaultDbClientManager } from "../infra/dbClientManager.js";
+import { createDefaultDbClientManager, type DbClientManager } from "../infra/dbClientManager.js";
 
 export interface InitCoreResult {
   env: EnvConfig;
@@ -18,7 +18,7 @@ export async function initCore(): Promise<InitCoreResult> {
 
   const dbConfig = await loadDatabasesConfig();
   const dbManager = dbConfig
-    ? createDbClientManagerFromConfig(dbConfig)
+    ? createDbClientManager(dbConfig)
     : createDefaultDbClientManager();
   initDbClientManager(dbManager);
   console.log(`[Db] 已注册连接: ${dbManager.listNames().join(", ")}`);
@@ -29,5 +29,5 @@ export async function initCore(): Promise<InitCoreResult> {
   }
   console.log(`[Guides] 已加载 SkillGuide: ${guidesResult.discovered} 条`);
 
-  return { env };
+  return { env};
 }

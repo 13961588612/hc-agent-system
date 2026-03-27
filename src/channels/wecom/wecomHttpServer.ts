@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { EnvConfig } from "../../config/env.js";
+import type { EnvConfig } from "../../config/envConfig.js";
 import { runOrchestratorGraph } from "../../graph/orchestrator/orchestratorGraph.js";
-import type { WeComChannelConfig } from "./wecomEnv.js";
+import type { WeComChannelConfig } from "./wecomConfig.js";
 import {
   decryptEchoStr,
   decryptWeComPayload,
@@ -11,17 +11,7 @@ import {
   verifySha1Signature
 } from "./wxBizMsgCrypt.js";
 import { sendWeComTextMessage } from "./wecomSendMessage.js";
-
-/** 将编排 `finalAnswer` 转为可发送的文本（企微单条有长度限制，发送处再截断） */
-function formatFinalAnswerForChannel(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (result && typeof result === "object") {
-    const o = result as Record<string, unknown>;
-    if (o.type === "fallback" && typeof o.message === "string") return o.message;
-    if (o.type === "data_query") return JSON.stringify(result, null, 2);
-  }
-  return JSON.stringify(result, null, 2);
-}
+import { formatFinalAnswerForChannel } from "./wecomReplyFormat.js";
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -45,7 +35,7 @@ function send(res: ServerResponse, status: number, body: string, type = "text/pl
 export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): void {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost`);
-    if (url.pathname !== cfg.callbackPath) {
+    if (url.pathname !== cfg?.http?.callbackPath) {
       send(res, 404, "not found");
       return;
     }
@@ -59,13 +49,13 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
         send(res, 400, "missing echostr");
         return;
       }
-      if (!verifySha1Signature(cfg.token, timestamp, nonce, echostr, msgSignature)) {
+      if (!verifySha1Signature(cfg?.http?.token, timestamp, nonce, echostr, msgSignature)) {
         console.warn("[WeCom] GET 验签失败");
         send(res, 403, "invalid signature");
         return;
       }
       try {
-        const plain = decryptEchoStr(cfg.encodingAESKey, echostr);
+        const plain = decryptEchoStr(cfg?.http?.encodingAESKey, echostr);
         send(res, 200, plain);
         console.log("[WeCom] URL 验证成功");
       } catch (e) {
@@ -86,7 +76,7 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
       let userId = "unknown";
       let text = "";
 
-      if (cfg.plaintextMode) {
+      if (cfg?.http?.plaintextMode) {
         try {
           const j = JSON.parse(rawBody) as Record<string, unknown>;
           userId = typeof j.userId === "string" ? j.userId : typeof j.fromUserName === "string" ? j.fromUserName : "demo-user";
@@ -105,12 +95,12 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
           send(res, 400, "no Encrypt in body");
           return;
         }
-        if (!verifySha1Signature(cfg.token, String(timestamp), String(nonce), encrypt, String(msgSignature))) {
+        if (!verifySha1Signature(cfg?.http?.token, String(timestamp), String(nonce), encrypt, String(msgSignature))) {
           console.warn("[WeCom] POST 验签失败");
           send(res, 403, "invalid signature");
           return;
         }
-        const buf = decryptWeComPayload(cfg.encodingAESKey, encrypt);
+        const buf = decryptWeComPayload(cfg?.http?.encodingAESKey, encrypt);
         const { content } = parseContentFromDecrypted(buf);
         const inner = parseTextXmlInner(content);
         userId = inner.fromUser ?? "unknown";
@@ -137,14 +127,17 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
 
       const replyText = formatFinalAnswerForChannel(result);
 
-      if (cfg.corpSecret && cfg.agentId && userId !== "unknown") {
+      const canSend =
+        cfg?.http?.webhookKey?.trim() ||
+        (cfg?.corpSecret && cfg?.http?.agentId && userId !== "unknown");
+      if (canSend) {
         try {
-          await sendWeComTextMessage(cfg.corpId, cfg.corpSecret, cfg.agentId, userId, replyText.slice(0, 2000));
+          await sendWeComTextMessage(cfg as WeComChannelConfig, userId, replyText);
         } catch (e) {
           console.error("[WeCom] 主动回复失败:", e);
         }
       } else {
-        console.log("[WeCom] 编排结果（未配置发消息或未识别用户）:", replyText.slice(0, 500));
+        console.log("[WeCom] 编排结果（未配置 Webhook 或应用发消息）:", replyText.slice(0, 500));
       }
 
       send(res, 200, "success");
@@ -154,9 +147,9 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
     }
   });
 
-  server.listen(cfg.port, () => {
+  server.listen(cfg?.http?.port ?? 3000, () => {
     console.log(
-      `[WeCom] HTTP 回调已监听 http://0.0.0.0:${cfg.port}${cfg.callbackPath}（生产请配 HTTPS 反代）`
+      `[WeCom] HTTP 回调已监听 http://0.0.0.0:${cfg?.http?.port ?? 3000}${cfg?.http?.callbackPath ?? "/wecom/callback"}（生产请配 HTTPS 反代）`
     );
   });
 }

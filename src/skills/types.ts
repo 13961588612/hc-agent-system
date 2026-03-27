@@ -1,4 +1,4 @@
-import type { EnvConfig } from "../config/env.js";
+import type { EnvConfig } from "../config/envConfig.js";
 import type { DbClient } from "../infra/dbClient.js";
 import type { DbClientManager } from "../infra/dbClientManager.js";
 

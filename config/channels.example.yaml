@@ -1,12 +1,28 @@
 # 渠道配置示例（可选）
-# 复制为 channels.yaml 并按环境填写。当前企业微信渠道主要仍从进程环境变量读取，
-# 见 docs/channel-wecom.md 与 src/channels/wecom/wecomEnv.ts。
-#
+# 复制为 channels.yaml。`src/config/channelsConfig.ts` 会读取其中 `wecom.transport`（及可选 `enabled`）；
+# 字符串字段支持占位符 `${ENV_NAME}`，加载时从 `process.env` 展开（与 `databases.yaml` 中 `${VAR}` 一致）。
+# 敏感值建议仍用 `.env` / `.env.local`，勿将明文 Secret 提交仓库。可用 `CHANNELS_CONFIG` 覆盖本文件路径。
 # 含密钥的文件请勿提交 Git（见仓库根目录 .gitignore）。
+#
+# 企业微信支持两种接入（与后台「接收消息」或「智能机器人」能力对应）：
+# - http_callback：HTTP 回调 URL（需公网 HTTPS 反代）
+# - long_connection：智能机器人长连接（WebSocket，默认方式）
 
 wecom:
   enabled: false
+
+  # 接入方式：http_callback | long_connection（未设置时由代码默认 long_connection）
+  transport: long_connection
+
+  # ---------- HTTP 回调（transport: http_callback）----------
   # 与后台「接收消息」URL 路径一致，对应 WECOM_CALLBACK_PATH
-  callbackPath: "/wecom/callback"
-  # 以下建议仅通过环境变量注入，勿在此文件写明文 Secret
-  # corpId: "${WECOM_CORP_ID}"
+  http:
+    callbackPath: "/wecom/callback"
+    # WECOM_HTTP_PORT；WECOM_TOKEN、WECOM_ENCODING_AES_KEY、WECOM_CORP_ID
+    # WECOM_WEBHOOK_KEY；WECOM_CORP_SECRET、WECOM_AGENT_ID
+    # 详见 docs/channel-wecom.md
+
+  # ---------- 智能机器人长连接（transport: long_connection）----------
+  # 凭证仅通过环境变量：WECOM_BOT_ID、WECOM_BOT_SECRET；可选 WECOM_WS_URL
+  longConnection:
+    enabled: true

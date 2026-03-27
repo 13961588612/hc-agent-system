@@ -1,6 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { EnvConfig } from "../config/env.js";
+import type { EnvConfig } from "../config/envConfig.js";
 
 const DEFAULT_DASHSCOPE_MODEL = "qwen3.5-plus";
 

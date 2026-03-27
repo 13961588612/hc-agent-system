@@ -12,7 +12,7 @@ connections:
   member:
     driver: postgres
     url: ${DB_MEMBER_URL}
-    readOnly: false
+    readOnly: true
 
   # 示例：分析只读库
   analytics:
@@ -24,3 +24,4 @@ connections:
   ecommerce:
     driver: mysql
     url: ${DB_ECOMMERCE_URL}
+    readOnly: true

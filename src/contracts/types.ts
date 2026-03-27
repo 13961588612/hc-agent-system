@@ -1,4 +1,4 @@
-import type { EnvConfig } from "../config/env.js";
+import type { EnvConfig } from "../config/envConfig.js";
 
 /** 主→子：统一任务下发协议 */
 export interface SubTaskEnvelope<TInputs = unknown> {

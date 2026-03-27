@@ -13,16 +13,17 @@
 | 变量 | 说明 |
 |------|------|
 | `DATABASES_CONFIG` | 可选。`databases.yaml` 的绝对或相对路径；未设置时默认 `<cwd>/config/databases.yaml` |
+| `CHANNELS_CONFIG` | 可选。`channels.yaml` 的绝对或相对路径；未设置时默认 `<cwd>/config/channels.yaml`（企业微信 `wecom.transport` 等） |
 | `DB_*` | 各连接在 YAML 中通过 `${DB_xxx}` 引用 |
 
 ## 渠道（企业微信等）
 
 - 说明与变量表：[`docs/channel-wecom.md`](../docs/channel-wecom.md)
-- 示例：`channels.example.yaml` → 可选复制为 `channels.yaml`（本地覆盖，已忽略提交）
-- 入口：`CHANNEL_MODE=wecom-http` 时由 `src/index.ts` 启动 `startWeComHttpServer`
+- 示例：`channels.example.yaml` → 可选复制为 `channels.yaml`（本地覆盖，已忽略提交）；`wecom.http` / `wecom.longConnection` 中字符串支持 **`${ENV_VAR}`**（与数据库配置相同，见 `src/config/envSubstitute.ts`）
+- 入口：`CHANNEL_MODE=wecom`（默认长连接，`@wecom/aibot-node-sdk`）或 `wecom-http`（HTTP 回调）；见 `src/index.ts`
 
 ## 代码入口
 
-- 加载与注册：`src/config/loadDatabasesConfig.ts`、`src/config/createDbClientManagerFromConfig.ts`
+- 加载与注册：`src/config/databasesConfig.ts`、`src/config/channelsConfig.ts`、`src/config/createDbClientManagerFromConfig.ts`
 - 全局访问：`src/config/dbAppContext.ts`（`getDbClientManager`）
 - 公共初始化：`src/bootstrap/initCore.ts`（数据库 + Guides，CLI 与渠道共用）

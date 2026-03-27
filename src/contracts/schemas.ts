@@ -91,7 +91,7 @@ export const OrchestratorInputSchema = z.object({
 export const ResultsIndexKeySchema = z.string();
 
 /** 编排器里「某次子任务/结果」在索引中的一条记录 */
-const ResultsIndexEntrySchema = z.object({
+export const ResultsIndexEntrySchema = z.object({
   /** 子任务执行状态：成功 / 失败 / 部分成功 */
   status: z.enum(["success", "failed", "partial"]),
   /** 该条结果的简短摘要，便于展示或日志 */
@@ -131,5 +131,28 @@ export const OrchestratorStateSchema = new StateSchema({
   finalAnswer: z.unknown()
 } as unknown as StateSchemaFields);
 
-export type DataQueryState = typeof DataQueryStateSchema.State;
-export type OrchestratorState = typeof OrchestratorStateSchema.State;
+/**
+ * 与 `OrchestratorState` 相同原因：`StateSchema.State` 可能推断为 `never`，节点内显式声明形状。
+ */
+export type DataQueryState = {
+  input: z.infer<typeof DataQueryInputSchema>;
+  queryDomain?: "member" | "ecommerce" | "other";
+  queryIntent?: string;
+  executionPlan?: z.infer<typeof DataQueryExecutionPlanSchema>;
+  result?: z.infer<typeof DataQueryResultSchema>;
+};
+
+/**
+ * LangGraph `StateSchema.State` 在部分版本下会推断为含 `never` 字段，节点内无法访问 `input`。
+ * 此处用与 `OrchestratorStateSchema` 一致的 Zod 结构显式声明，供节点与 Agent 类型检查。
+ */
+export type OrchestratorState = {
+  input: z.infer<typeof OrchestratorInputSchema>;
+  highLevelDomain?: "data_query" | "other";
+  resultsIndex?: Record<string, z.infer<typeof ResultsIndexEntrySchema>>;
+  lastDataSetRef?: {
+    id: string;
+    path: string;
+  };
+  finalAnswer?: unknown;
+};

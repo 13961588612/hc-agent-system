@@ -430,3 +430,5 @@ const executeQueryNode = async (state: DataQueryState): Promise<DataQueryState> 
 
 在本阶段打通闭环之后，可以在后续阶段逐步引入 DataAnalysisAgent、SmartFormAgent、DeepAgent 技能检索以及记忆系统，保持接口与 State 向前兼容。
 
+**相关扩展（意图与多轮澄清）**：见 [`design-intent-recognition.md`](./design-intent-recognition.md)。
+

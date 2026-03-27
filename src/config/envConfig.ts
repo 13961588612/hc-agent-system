@@ -6,8 +6,7 @@ dotenv.config(); // 默认 .env
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local"), override: true }); // .env.local 本地覆盖
 
 export interface EnvConfig {
-  dbUrl?: string;
-  vectorDbUrl?: string;
+
   dashscopeApiKey?: string;
   dashscopeApiBase?: string;
   dashscopeModel?: string;
@@ -16,14 +15,23 @@ export interface EnvConfig {
   langsmithTracing?: string;
   langchainProject?: string;
 
-  /** 入口模式：`cli`（默认）、`wecom-http` 等，见 `docs/channel-wecom.md` */
+  /** 入口模式：`cli`（默认）、`wecom`（企微，默认长连接）、`wecom-http`、`wecom-long` 等，见 `docs/channel-wecom.md` */
   channelMode?: string;
+
+  wecomBotId?: string;
+  wecomBotSecret?: string;
+  wecomCorpId?: string;
+
+  wecomAgentId?: string;
+  wecomCorpSecret?: string;
+  wecomWebhookKey?: string;
+  wecomToken?: string;
+  wecomEncodingAESKey?: string;
 }
 
 export function loadEnvConfig(): EnvConfig {
   return {
-    dbUrl: process.env.DB_URL,
-    vectorDbUrl: process.env.VECTOR_DB_URL,
+
     dashscopeApiKey: process.env.DASHSCOPE_API_KEY,
     dashscopeApiBase: process.env.DASHSCOPE_API_BASE,
     dashscopeModel: process.env.DASHSCOPE_MODEL,
@@ -32,6 +40,16 @@ export function loadEnvConfig(): EnvConfig {
     langsmithTracing: process.env.LANGSMITH_TRACING,
     langchainProject: process.env.LANGCHAIN_PROJECT,
 
-    channelMode: process.env.CHANNEL_MODE
+    channelMode: process.env.CHANNEL_MODE,
+
+    wecomBotId: process.env.WECOM_BOT_ID,
+    wecomBotSecret: process.env.WECOM_BOT_SECRET,
+    wecomCorpId: process.env.WECOM_CORP_ID,
+    
+    wecomAgentId: process.env.WECOM_AGENT_ID,
+    wecomCorpSecret: process.env.WECOM_CORP_SECRET,
+    wecomWebhookKey: process.env.WECOM_WEBHOOK_KEY,
+    wecomToken: process.env.WECOM_TOKEN,
+    wecomEncodingAESKey: process.env.WECOM_ENCODING_AES_KEY,
   };
 }
