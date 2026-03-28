@@ -4,11 +4,22 @@ import { z } from "zod/v3";
 /** EnvConfig schema - accepts any object (openaiApiKey, dbUrl, etc.) */
 export const EnvConfigSchema = z.object({}).passthrough();
 
+/** LLM / 意图节点注入的参数化 SQL */
+const DataQuerySqlItemSchema = z.object({
+  sql: z.string(),
+  params: z.array(z.unknown()).optional(),
+  dbClientKey: z.string().optional(),
+  label: z.string().optional(),
+  purpose: z.string().optional()
+});
+
 /** DataQueryInput schema */
 export const DataQueryInputSchema = z.object({
   userInput: z.string(),
   userId: z.string().optional(),
-  env: EnvConfigSchema
+  env: EnvConfigSchema,
+  sqlQuery: DataQuerySqlItemSchema.optional(),
+  sqlQueries: z.array(DataQuerySqlItemSchema).optional()
 });
 
 /** 单表数据结构，用于 tables 类型 */
@@ -84,7 +95,9 @@ export const OrchestratorInputSchema = z.object({
   userInput: z.string(),
   userId: z.string().optional(),
   channel: z.string().optional(),
-  env: EnvConfigSchema
+  env: EnvConfigSchema,
+  sqlQuery: DataQuerySqlItemSchema.optional(),
+  sqlQueries: z.array(DataQuerySqlItemSchema).optional()
 });
 
 /** resultsIndex 的 key：子任务或步骤 id（字符串标识） */

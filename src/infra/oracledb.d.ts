@@ -30,6 +30,8 @@ declare module "oracledb" {
   interface OracledbStatic {
     createPool(config: PoolAttributes): Promise<Pool>;
     OUT_FORMAT_OBJECT: number;
+    /** Thick 模式：连接 11g 等 Thin 不支持的库前必须调用 */
+    initOracleClient(options?: { libDir?: string }): void;
   }
 
   const oracledb: OracledbStatic;

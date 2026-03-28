@@ -64,7 +64,7 @@ export interface SubTaskResult<TData = unknown> {
   }>;
   /** 调试与可观测性信息 */
   debug?: {
-    /** 使用到的 skill 名称 */
+    /** 使用到的技能名称 */
     usedSkills?: string[];
     /** 使用到的工具名称 */
     usedTools?: string[];
@@ -75,11 +75,33 @@ export interface SubTaskResult<TData = unknown> {
   };
 }
 
+/**
+ * 单条待执行 SQL：由 **LLM 按 SkillGuide 生成** 或意图节点填充，须 **参数绑定**。
+ * DataQuery 子图只负责执行，不解析 Guide、不内置业务模板。
+ */
+export interface DataQuerySqlItem {
+  sql: string;
+  params?: unknown[];
+  /** `DbClientManager` 连接键；会员库一般为 `member`，未填则用 `default` */
+  dbClientKey?: string;
+  /** 结果表中 `name`、错误映射用；建议填能力 id 或简短说明 */
+  label?: string;
+  /** 传入 `sql-query` 的 purpose 日志 */
+  purpose?: string;
+}
+
 export interface OrchestratorInput {
   userInput: string;
   userId?: string;
   channel?: string;
   env: EnvConfig;
+  /**
+   * 意图 / Agent 工具在披露 SkillGuide 后生成 SQL，注入此处执行。
+   * 与 `sqlQueries` 同时存在时，**非空 `sqlQueries` 优先**。
+   */
+  sqlQuery?: DataQuerySqlItem;
+  /** 同一子任务内顺序执行多条，合并为 `DataQueryResult.dataType === "tables"` */
+  sqlQueries?: DataQuerySqlItem[];
 }
 
 /** resultsIndex 的 key：子任务或步骤 id（与 `ResultsIndexKeySchema` 一致） */
@@ -91,6 +113,8 @@ export interface DataQueryInput {
   userInput: string;
   userId?: string;
   env: EnvConfig;
+  sqlQuery?: DataQuerySqlItem;
+  sqlQueries?: DataQuerySqlItem[];
 }
 
 /** 执行计划中单步：SQL */
