@@ -53,3 +53,12 @@ export function loadEnvConfig(): EnvConfig {
     wecomEncodingAESKey: process.env.WECOM_ENCODING_AES_KEY,
   };
 }
+
+
+let envConfig: EnvConfig | null = null;
+export function getEnvConfig(): EnvConfig {
+  if (!envConfig) {
+    envConfig = loadEnvConfig();
+  }
+  return envConfig;
+}

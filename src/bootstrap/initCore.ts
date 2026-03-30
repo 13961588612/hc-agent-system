@@ -3,6 +3,7 @@ import { initDbClientManager } from "../config/dbAppContext.js";
 import { loadEnvConfig, type EnvConfig } from "../config/envConfig.js";
 import { loadDatabasesConfig } from "../config/databasesConfig.js";
 import { discoverAndRegisterGuides } from "../guides/scanGuides.js";
+import { discoverAndRegisterIntentRules } from "../intent/scanIntentRules.js";
 import { createDefaultDbClientManager, type DbClientManager } from "../infra/dbClientManager.js";
 
 export interface InitCoreResult {
@@ -28,6 +29,12 @@ export async function initCore(): Promise<InitCoreResult> {
     console.warn("[Guides] 扫描提示:", guidesResult.errors);
   }
   console.log(`[Guides] 已加载 SkillGuide: ${guidesResult.discovered} 条`);
+
+  const intentRulesResult = await discoverAndRegisterIntentRules();
+  if (intentRulesResult.errors.length > 0) {
+    console.warn("[IntentRules] 扫描提示:", intentRulesResult.errors);
+  }
+  console.log(`[IntentRules] 已加载规则: ${intentRulesResult.discovered} 条`);
 
   return { env};
 }

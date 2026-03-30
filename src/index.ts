@@ -3,7 +3,7 @@ import { startWeComLongConnection } from "./channels/wecom/wecomLongConnection.j
 import { startWeComHttpServer } from "./channels/wecom/wecomHttpServer.js";
 import { loadWeComConfig, type WeComChannelConfig } from "./channels/wecom/wecomConfig.js";
 import { loadChannelsConfig, type ChannelsConfig } from "./config/channelsConfig.js";
-import { runOrchestratorGraph } from "./graph/orchestrator/orchestratorGraph.js";
+import { runSupervisorAgent } from "./agents/supervisorAgent.js";
 
 function isWecomChannelMode(mode: string): boolean {
   return mode === "wecom" || mode === "wecom-http" || mode === "wecom-long";
@@ -39,7 +39,7 @@ async function main() {
     return;
   }
 
-  const result = await runOrchestratorGraph(
+  const result = await runSupervisorAgent(
     {
       userInput: "帮我查一下我最近的订单",
       userId: "demo-user",
@@ -56,3 +56,6 @@ main().catch((err) => {
   console.error("Fatal error:", err);
   process.exit(1);
 });
+
+export { runSupervisorAgent } from "./agents/supervisorAgent.js";
+export { runOrchestratorGraph } from "./graph/orchestrator/orchestratorGraph.js";

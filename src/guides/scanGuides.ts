@@ -2,6 +2,11 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { clearGuides, getGuide, registerGuide } from "./guideRegistry.js";
+import {
+  parseCapabilitiesBlock,
+  parseExecutionBlock,
+  parseParamsBlock
+} from "./parseGuideMeta.js";
 import type { SkillGuideEntry } from "./types.js";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
@@ -50,10 +55,19 @@ function parseGuideFile(content: string, filePath: string): SkillGuideEntry | nu
   const title = typeof o.title === "string" ? o.title : "";
   if (!id || !title) return null;
 
+  const queryTemplateId =
+    typeof o.queryTemplateId === "string" ? o.queryTemplateId.trim() : undefined;
+  const description =
+    typeof o.description === "string" ? o.description.trim() : undefined;
+  const params = parseParamsBlock(o.params);
+  const execution = parseExecutionBlock(o.execution);
+  const capabilities = parseCapabilitiesBlock(o.capabilities);
+
   const entry: SkillGuideEntry = {
     id,
     kind: "guide",
     title,
+    ...(description ? { description } : {}),
     domain: typeof o.domain === "string" ? o.domain : undefined,
     segment: typeof o.segment === "string" ? o.segment : undefined,
     relatedSkillIds: Array.isArray(o.relatedSkillIds)
@@ -62,6 +76,10 @@ function parseGuideFile(content: string, filePath: string): SkillGuideEntry | nu
     tags: Array.isArray(o.tags)
       ? o.tags.filter((x): x is string => typeof x === "string")
       : undefined,
+    ...(queryTemplateId ? { queryTemplateId } : {}),
+    ...(params ? { params } : {}),
+    ...(execution ? { execution } : {}),
+    ...(capabilities ? { capabilities } : {}),
     body: m[2].trim(),
     filePath
   };

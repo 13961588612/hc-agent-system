@@ -2,6 +2,7 @@
 id: guide-member-profile
 kind: guide
 title: 会员档案 个人信息 会员卡信息查询 生日变更查询
+description: 根据 会员内部编号/卡号/手机号 查询会员个人资料、档案;根据会员内部编号查询会员个人档案或资料 (含生日)的变更流水;
 domain: data_query
 segment: member
 relatedSkillIds:
@@ -13,6 +14,60 @@ tags:
   - 会员卡
   - 生日
   - 变更记录
+
+# 粗粒度主题（意图/披露）；细粒度见 capabilities[].id
+skillTemplateId: member.profile
+
+# 单篇多能力：每条对应正文「能力 id」，可分别配置槽位与 execution（见 src/guides/types.ts）
+capabilities:
+  - id: member.profile.by_user_id
+    description: 已知会员内部编号时，批量查询档案快照（与 vipIds 绑定）。
+    params:
+      required:
+        - name: vipIds
+          type: string[]
+          description: 会员内部编号的数组，与 SQL 绑定一一对应，最多 10 个
+    execution:
+      skillId: sql-query
+      sqlTemplateRef: inline
+      confirmBeforeRun: false
+      minConfidence: 0.72
+  - id: member.profile.by_member_card_no
+    description: 已知会员卡号时，批量查询档案快照（与 memberCardNos 绑定）。
+    params:
+      required:
+        - name: memberCardNos
+          type: string[]
+          description: 会员卡号的数组，与 IN 绑定参数一一对应，最多 10 个
+    execution:
+      skillId: sql-query
+      sqlTemplateRef: inline
+      confirmBeforeRun: false
+      minConfidence: 0.72
+  - id: member.profile.by_mobile
+    description: 已知手机号时，批量查询档案快照（与 mobiles 绑定）。
+    params:
+      required:
+        - name: mobiles
+          type: string[]
+          description: 手机号的数组，与绑定参数一一对应，最多 10 个
+    execution:
+      skillId: sql-query
+      sqlTemplateRef: inline
+      confirmBeforeRun: false
+      minConfidence: 0.72
+  - id: member.profile.change_log
+    description: 会员生日/档案变更历史流水（与 vipIds 绑定，非当前快照）。
+    params:
+      required:
+        - name: vipIds
+          type: string[]
+          description: 会员内部编号的数组，与绑定参数一一对应，最多 10 个
+    execution:
+      skillId: sql-query
+      sqlTemplateRef: inline
+      confirmBeforeRun: false
+      minConfidence: 0.72
 ---
 
 ## 适用场景（总述）
@@ -29,12 +84,7 @@ tags:
 
 ## 推荐使用方式（可执行技能）
 
-1. **执行入口**：主 Agent / 意图节点在披露本 Guide 后，由 **LLM 按下方能力规格生成参数化 SQL**，经编排注入 **`OrchestratorInput.sqlQuery` 或 `sqlQueries`**，由 DataQuery 子图调用 **`sql-query`** 执行。**禁止**把用户原文拼进 SQL，必须使用绑定参数。
-2. **传输契约**（`contracts/types.ts`）：
-   - **`sqlQuery`**：单条 `{ sql, params?, dbClientKey?, label?, purpose? }`。
-   - **`sqlQueries`**：多条数组，顺序执行，结果为 **`DataQueryResult.dataType === "tables"`**（`tables[].name` 建议用能力 id 填 `label`）。与 `sqlQuery` 同时存在时，**非空 `sqlQueries` 优先**。单次最多 **10** 条，超出部分忽略，`meta.truncatedQueries` 为截断条数。
-3. **数据源与连接键**：本 Guide 能力对应 **`dbClientKey: "member"`**（见 `config/databases.yaml`）。若 `member` 执行失败，DataQuery 可能对 **`member` 回退 `default`** 以便联调（见实现日志）。
-4. **物理库**：会员主数据位于 Oracle 模式 **`bfcrm8`**（见各条 SQL）。
+1. **执行入口**：披露本 Guide 后，由 **LLM 按下方能力生成参数化 SQL**，执行时，注意每项能力对应的数据源名称
 
 ---
 
@@ -62,6 +112,7 @@ tags:
 |----|------|
 | **能力 id** | `member.profile.by_user_id` |
 | **数据源** | `member`（`bfcrm8`） |
+| **关联技能** | `sql-query` |
 | **触发** | 用户想查 **会员资料 / 档案 / 个人信息 / 持卡信息** 等（说法同上文「适用场景」） |
 | **选用条件** | 上游已解析出 **会员内部编号**（系统侧会员 id，非卡号、非手机号），并填入槽位 **`vipIds`** |
 
@@ -113,6 +164,7 @@ WHERE a.status <> -1
 |----|------|
 | **能力 id** | `member.profile.by_member_card_no` |
 | **数据源** | `member`（`bfcrm8`） |
+| **关联技能** | `sql-query` |
 | **触发** | 用户想通过 **会员卡号**（实体卡/电子卡上的号码）查该会员的档案资料 |
 | **选用条件** | 槽位 **`memberCardNos`** 已就绪（每条一个卡号） |
 
@@ -162,6 +214,7 @@ WHERE a.status <> -1
 |----|------|
 | **能力 id** | `member.profile.by_mobile` |
 | **数据源** | `member`（`bfcrm8`） |
+| **关联技能** | `sql-query` |
 | **触发** | 用户提供 **手机号码**，想查对应 **是谁、会员档案、持卡信息** |
 | **选用条件** | 槽位 **`mobiles`** 已就绪（每条一个手机号，建议归一化后再绑定） |
 
@@ -215,6 +268,7 @@ WHERE a.status <> -1
 |----|------|
 | **能力 id** | `member.profile.change_log` |
 | **数据源** | `member`（`bfcrm8`） |
+| **关联技能** | `sql-query` |
 | **触发** | **优先**：会员 **生日改了几次、生日变更记录、档案变更历史、什么时候改过生日**；**兼用**：用户笼统说查档案，但澄清后确认为要 **历史变更** 而非当前快照（与上文「快照 vs 变更记录」一致） |
 | **选用条件** | 已掌握 **会员内部编号** 列表，填入 **`vipIds`** |
 
@@ -245,15 +299,3 @@ WHERE r.hyid IN (/* N 个绑定占位符，N = vipIds 个数，N ≤ 10 */)
 | `birthday` | 更新后生日 |
 | `change_day` | 更新日期 |
 
----
-
-## 编排提示
-
-- 按 **已解析槽位** 选能力：**会员内部编号** → `by_user_id`；**会员卡号** → `by_member_card_no`；**手机号** → `by_mobile`；**生日/档案变更历史**（且已有会员编号）→ `change_log`（`vipIds`）。
-- 意图识别完成后，将本 Guide 中与所选能力对应的 **SQL 模板 + 绑定参数** 填入 **`sqlQuery` / `sqlQueries`**，再进入 DataQuery 子图；多能力可一条 `sqlQueries` 或多轮子任务。
-- 若同时涉及积分、订单，应拆多次查询或 `executionPlan.steps`，勿在一个 SQL 里硬堆无关业务。
-
-## 注意事项
-
-- 本文件为 **SkillGuide**，不执行代码；**运行时 SQL 由 LLM 按本文生成**，经 **`sqlQuery`/`sqlQueries`** 交由 DataQuery → `sql-query` 执行。
-- 部署后可追加或修改本目录 `.md`；运行时由 `GUIDES_DIR` / `skills/guides` 扫描（见 `skills/guides/README.md`）。

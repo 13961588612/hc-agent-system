@@ -1,4 +1,8 @@
-import { type StateSchemaFields, StateSchema } from "@langchain/langgraph";
+import {
+  type StateSchemaFields,
+  ReducedValue,
+  StateSchema
+} from "@langchain/langgraph";
 import { z } from "zod/v3";
 
 /** EnvConfig schema - accepts any object (openaiApiKey, dbUrl, etc.) */
@@ -19,7 +23,13 @@ export const DataQueryInputSchema = z.object({
   userId: z.string().optional(),
   env: EnvConfigSchema,
   sqlQuery: DataQuerySqlItemSchema.optional(),
-  sqlQueries: z.array(DataQuerySqlItemSchema).optional()
+  sqlQueries: z.array(DataQuerySqlItemSchema).optional(),
+  /** 意图节点解析的槽位，子图优先据此路由与绑参 */
+  resolvedSlots: z.record(z.string(), z.unknown()).optional(),
+  /** 子图路由意图 id，与 `dataQueryDomain` 成对使用（来自 IntentResult.targetIntent） */
+  targetIntent: z.string().optional(),
+  /** 子图路由域（来自 IntentResult.dataQueryDomain） */
+  dataQueryDomain: z.enum(["member", "ecommerce", "other"]).optional()
 });
 
 /** 单表数据结构，用于 tables 类型 */
@@ -90,6 +100,38 @@ export const DataQueryStateSchema = new StateSchema({
 
 /** Orchestrator Graph state - 使用 StateSchema 定义 */
 
+/** 主图多轮对话中的一条（user / assistant） */
+export const ConversationTurnSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string()
+});
+
+const MAX_CONVERSATION_TURNS = 10;
+
+/** LLM 结构化意图结果（与 `docs/intent-recognition-execution-plan.md` 里程碑 1 对齐） */
+export const IntentResultSchema = z.object({
+  /** 顶层意图：问数 / 闲聊 / 无法归类或超范围 */
+  primaryIntent: z.enum(["data_query", "chitchat", "unknown"]),
+  /** 为 true 时不应进入数据查询子图，应先追问用户 */
+  needsClarification: z.boolean(),
+  /** `needsClarification` 为 true 时展示给用户的一句追问 */
+  clarificationQuestion: z.string().optional(),
+  /** 已解析槽位；第二期与 DataQuery 子图对齐（如 user_id、手机号） */
+  resolvedSlots: z.record(z.string(), z.unknown()).optional(),
+  /** 问数业务域，与 `targetIntent` 一并传入 DataQuery 子图做结构化路由 */
+  dataQueryDomain: z.enum(["member", "ecommerce", "other"]).optional(),
+  /** 子图内意图 id，如 member_points_recent、ecom_orders_recent */
+  targetIntent: z.string().optional(),
+  /** 仍缺的必填槽位名；非空时主图不执行 SQL，仅合成追问 */
+  missingSlots: z.array(z.string()).optional(),
+  /** 模型对本次分类的置信度，0～1 */
+  confidence: z.number().optional(),
+  /** 闲聊、未知等场景下给用户的简短友好回复建议（非问数或无需澄清时） */
+  replySuggestion: z.string().optional()
+});
+
+export type IntentResult = z.infer<typeof IntentResultSchema>;
+
 /** OrchestratorInput schema */
 export const OrchestratorInputSchema = z.object({
   userInput: z.string(),
@@ -129,6 +171,26 @@ export const OrchestratorStateSchema = new StateSchema({
   input: OrchestratorInputSchema,
   /** 意图识别后的高层域：数据查询类 vs 其他 */
   highLevelDomain: z.enum(["data_query", "other"]).optional(),
+  /** 结构化意图（LLM + 兜底），与 `highLevelDomain` 在意图节点内一并写入 */
+  intentResult: IntentResultSchema.optional(),
+  /** 会话轮次（append reducer，最多保留最近若干条） */
+  // LangGraph `SerializableSchema` 与 `zod/v3` 的 TS 声明不完全一致，运行时仍按 Zod 校验
+  conversationTurns:
+    // @ts-expect-error ReducedValue 与 zod/v3 的 Standard Schema 类型在依赖侧未完全对齐
+    new ReducedValue(z.array(ConversationTurnSchema), {
+      inputSchema: z.union([ConversationTurnSchema, z.array(ConversationTurnSchema)]),
+      reducer: (
+        current: z.infer<typeof ConversationTurnSchema>[],
+        next:
+          | z.infer<typeof ConversationTurnSchema>
+          | z.infer<typeof ConversationTurnSchema>[]
+      ) => {
+        const prev = current ?? [];
+        const batch = Array.isArray(next) ? next : [next];
+        const merged = [...prev, ...batch];
+        return merged.slice(-MAX_CONVERSATION_TURNS);
+      }
+    }),
   /** 各子任务/步骤结果的索引：key 见 ResultsIndexKeySchema，value 为状态与摘要 */
   resultsIndex: z.record(ResultsIndexKeySchema, ResultsIndexEntrySchema).optional(),
   /** 最近一次数据集引用，便于后续节点复用或追问 */
@@ -140,6 +202,24 @@ export const OrchestratorStateSchema = new StateSchema({
       path: z.string()
     })
     .optional(),
+  /**
+   * 当前追问 streak 内已发出的澄清次数（assistant 追问条数）。
+   * 非澄清类 finalAnswer 时归零；达上限则不再追问。
+   */
+  clarificationRound: z.number().optional(),
+  /**
+   * 最近一次发出澄清的时间戳（ms）。0 表示当前无有效「追问窗口」。
+   * 用于空闲超时后重置 `clarificationRound`。
+   */
+  lastClarificationAtMs: z.number().optional(),
+  /** 里程碑 6.2：Guide 编排阶段 */
+  guidePhase: z
+    .enum(["idle", "ready", "awaiting_slot", "skipped"])
+    .optional(),
+  selectedGuideId: z.string().optional(),
+  selectedCapabilityId: z.string().optional(),
+  guideResolvedParams: z.record(z.string(), z.unknown()).optional(),
+  guideMissingParams: z.array(z.string()).optional(),
   /** 编排器最终对用户/调用方的回答（结构由上层决定） */
   finalAnswer: z.unknown()
 } as unknown as StateSchemaFields);
@@ -162,10 +242,21 @@ export type DataQueryState = {
 export type OrchestratorState = {
   input: z.infer<typeof OrchestratorInputSchema>;
   highLevelDomain?: "data_query" | "other";
+  intentResult?: IntentResult;
+  conversationTurns?: z.infer<typeof ConversationTurnSchema>[];
   resultsIndex?: Record<string, z.infer<typeof ResultsIndexEntrySchema>>;
   lastDataSetRef?: {
     id: string;
     path: string;
   };
+  /** 已发出澄清条数（追问 streak），达上限则降级为 fallback */
+  clarificationRound?: number;
+  /** 上次追问时间；0 表示无 */
+  lastClarificationAtMs?: number;
+  guidePhase?: "idle" | "ready" | "awaiting_slot" | "skipped";
+  selectedGuideId?: string;
+  selectedCapabilityId?: string;
+  guideResolvedParams?: Record<string, unknown>;
+  guideMissingParams?: string[];
   finalAnswer?: unknown;
 };

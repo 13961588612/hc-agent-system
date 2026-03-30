@@ -2,6 +2,7 @@
 id: guide-member-account
 kind: guide
 title: 会员积分账户查询（当前积分/可用积分/积分流水）
+description: 会员积分账户快照与最近流水查询；数据源 member（bfcrm8）。
 domain: data_query
 segment: member
 relatedSkillIds:
@@ -12,6 +13,48 @@ tags:
   - 积分
   - 积分账户
   - 积分余额
+
+# 粗粒度主题（意图/披露）；细粒度见 capabilities[].id
+skillTemplateId: member.points_account
+
+# 单篇多能力：每条对应正文「能力 id」，可分别配置槽位与 execution（见 src/guides/types.ts）
+capabilities:
+  - id: member.points_account.by_vip_id
+    description: 已知会员内部编号（hyid）时，查询积分账户快照。
+    params:
+      required:
+        - name: vipIds
+          type: string[]
+          description: 会员内部编号列表，与 SQL 绑定一一对应，最多 10 个
+    execution:
+      skillId: sql-query
+      sqlTemplateRef: inline
+      confirmBeforeRun: false
+      minConfidence: 0.72
+  - id: member.points_account.by_member_card_no
+    description: 已知会员卡号时，查询积分账户快照。
+    params:
+      required:
+        - name: memberCardNos
+          type: string[]
+          description: 会员卡号列表，与 SQL 绑定一一对应，最多 10 个
+    execution:
+      skillId: sql-query
+      sqlTemplateRef: inline
+      confirmBeforeRun: false
+      minConfidence: 0.72
+  - id: member.points_account.ledger_recent
+    description: 查询会员最近积分流水（按会员编号）。
+    params:
+      required:
+        - name: vipIds
+          type: string[]
+          description: 会员内部编号列表，与 SQL 绑定一一对应，最多 10 个
+    execution:
+      skillId: sql-query
+      sqlTemplateRef: inline
+      confirmBeforeRun: false
+      minConfidence: 0.72
 ---
 
 ## 适用场景（总述）
@@ -20,7 +63,6 @@ tags:
 
 - 积分多少、当前积分、可用积分、剩余积分、积分余额、卡上有多少分
 - 查一下会员积分、积分账户、积分汇总
-- 积分流水、积分变动记录、积分明细（与「当前余额快照」可同时需要时用 `sqlQueries`）
 
 **边界**：
 
@@ -32,10 +74,8 @@ tags:
 
 ## 推荐使用方式（可执行技能）
 
-1. **执行入口**：披露本 Guide 后，由 **LLM 按下方能力生成参数化 SQL**，注入 **`OrchestratorInput.sqlQuery` 或 `sqlQueries`**，经 DataQuery → **`sql-query`**；**禁止**拼接用户原文。
-2. **传输契约**：`DataQuerySqlItem`（`sql`、`params`、`dbClientKey`、`label`、`purpose`）；多步 **`sqlQueries`**。
-3. **数据源**：**`dbClientKey: "member"`**；物理表示例 **Oracle `bfcrm8`**。
-4. **表与字段**：下表为**示意**（常见为会员卡主档上的积分字段，或独立积分账户表），**须按贵司 DDL 替换**。
+1. **执行入口**：披露本 Guide 后，由 **LLM 按下方能力生成参数化 SQL**；生成后由 **LLM 调用 `data-query`** 执行，并注意每项能力对应的数据源名称。
+2. **传输契约**：`DataQuerySqlItem`（`sql`、`params`、`dbClientKey`、`label`、`purpose`）；多步使用 `sqlQueries`。
 
 ---
 
@@ -56,6 +96,7 @@ tags:
 |----|------|
 | **能力 id** | `member.points_account.by_vip_id` |
 | **数据源** | `member`（`bfcrm8`） |
+| **关联技能** | `sql-query` |
 | **触发** | 已解析 **会员编号 `hyid`**，查**积分账户快照**（当前/可用/冻结等，以实际表为准） |
 
 **输入**
@@ -71,14 +112,12 @@ tags:
 ```sql
 SELECT
   h.hyid AS vipId,
-  h.hyk_no AS memberCardNo,
-  NVL(h.jf, 0) AS totalPoints,
-  NVL(h.kyjf, 0) AS availablePoints,
-  NVL(h.djjf, 0) AS frozenPoints,
-  h.jfxgsj AS pointsLastUpdateTime
-FROM bfcrm8.hyk_hyxx h
+  b.hyk_no AS memberCardNo,
+  NVL(h.wcljf, 0) AS totalPoints
+FROM bfcrm8.hyk_mdjf h,bfcrm8.hyk_hyxx b
 WHERE h.hyid IN (/* N 个绑定占位符，N ≤ 10 */)
-  AND NVL(h.status, 1) <> -1
+and h.hyid=b.hyid
+  group by h.hyid
 ```
 
 **输出格式**：`table`
@@ -87,101 +126,5 @@ WHERE h.hyid IN (/* N 个绑定占位符，N ≤ 10 */)
 |------|------|
 | `vipId` | 会员编号 |
 | `memberCardNo` | 会员卡号 |
-| `totalPoints` | 总积分/账面积分（以业务定义为准） |
-| `availablePoints` | 可用积分 |
-| `frozenPoints` | 冻结积分 |
-| `pointsLastUpdateTime` | 积分最近更新时间（若有） |
+| `totalPoints` | 总积分/账面积分/剩余积分/积分余额 |
 
----
-
-### `member.points_account.by_member_card_no`
-
-| 项 | 内容 |
-|----|------|
-| **能力 id** | `member.points_account.by_member_card_no` |
-| **数据源** | `member`（`bfcrm8`） |
-| **触发** | 已解析 **会员卡号 `hyk_no`**，查积分账户快照 |
-
-**输入**
-
-| 字段名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| `memberCardNos` | `string[]` | 是 | 非空，≤10 |
-
-**SQL 模板**
-
-```sql
-SELECT
-  h.hyk_no AS memberCardNo,
-  h.hyid AS vipId,
-  NVL(h.jf, 0) AS totalPoints,
-  NVL(h.kyjf, 0) AS availablePoints,
-  NVL(h.djjf, 0) AS frozenPoints,
-  h.jfxgsj AS pointsLastUpdateTime
-FROM bfcrm8.hyk_hyxx h
-WHERE h.hyk_no IN (/* N 个绑定占位符，N ≤ 10 */)
-  AND NVL(h.status, 1) <> -1
-```
-
-**输出格式**：`table`（列含义同上）
-
----
-
-### `member.points_account.ledger_recent`
-
-| 项 | 内容 |
-|----|------|
-| **能力 id** | `member.points_account.ledger_recent` |
-| **数据源** | `member`（`bfcrm8`） |
-| **触发** | 用户要 **积分流水、积分明细、增减记录** |
-
-**输入**
-
-| 字段名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| `vipIds` | `string[]` | 是 | 非空，≤10 |
-| `limitRows` | `number` | 否 | 如 50，**绑定为参数** |
-
-**SQL 模板**
-
-> **替换说明**：流水表常见为 `hyk_jfmx`、`member_points` 等；列名请按 DDL 调整。以下为示意。
-
-```sql
-SELECT * FROM (
-  SELECT
-    m.hyid AS vipId,
-    m.jlbh AS ledgerId,
-    m.jfbg AS pointChange,
-    m.jyyy AS reason,
-    m.jysj AS txnTime,
-    ROW_NUMBER() OVER (PARTITION BY m.hyid ORDER BY m.jysj DESC) AS rn
-  FROM bfcrm8.hyk_jfmx m
-  WHERE m.hyid IN (/* N 个绑定占位符 */)
-) t
-WHERE t.rn <= :limit
-```
-
-> `limit` 为**单独绑定参数**（如 `:limit` 在 Oracle 中与 `IN` 占位符序号错开时注意统一编号）。若仅有单会员也可简化为子查询 + `ROWNUM`。
-
-**输出格式**：`table`
-
-| 列名 | 含义 |
-|------|------|
-| `vipId` | 会员编号 |
-| `ledgerId` | 流水号 |
-| `pointChange` | 积分变动值（正增负减，以业务为准） |
-| `reason` | 变动原因/类型说明 |
-| `txnTime` | 发生时间 |
-
----
-
-## 编排提示
-
-- 「只要当前积分」→ `member.points_account.by_*`；「还要最近流水」→ **`sqlQueries`** 先快照后流水，或单条 SQL 由产品决定是否合并。
-- 与 **档案** 组合：一条 `guide-member-profile` 能力 + 一条本 Guide 能力。
-- `label` / `purpose` 建议与能力 id 一致。
-
-## 注意事项
-
-- 本文件为 **SkillGuide**；**可执行 SQL 由 LLM 按本文生成**，经 **`sqlQuery` / `sqlQueries`** 执行。
-- **`hyk_hyxx` 上积分列名、`hyk_jfmx` 是否存在**以真实库为准，投产前务必替换。

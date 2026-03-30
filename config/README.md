@@ -17,6 +17,9 @@
 | `DB_*` | 各连接在 YAML 中通过 `${DB_xxx}` 引用 |
 | `ORACLE_CLIENT_LIB_DIR` | **可选**。指向本机 [Oracle Instant Client](https://www.oracle.com/database/technologies/instant-client/downloads.html) 解压目录，启用 node-oracledb **Thick** 模式。**连接 Oracle 11g 时必须设置**（或配合 `ORACLE_USE_THICK`），否则 Thin 模式会报 `NJS-138`。 |
 | `ORACLE_USE_THICK` | **可选**。设为 `1` 或 `true` 时调用无参 `initOracleClient()`，适用于已在系统路径 / `LD_LIBRARY_PATH` 中配置好 Instant Client 的 Linux 等环境。 |
+| `MAX_CLARIFICATION_ROUNDS` | **可选**。默认 `3`；同一 `thread_id` 内 assistant 可发出的「追问」条数上限，超出则回复固定提示。 |
+| `CLARIFICATION_IDLE_MS` | **可选**。默认 `1800000`（30 分钟）；距上次追问超过该毫秒后用户再发消息，重置追问计数。 |
+| `INTENT_LLM_TIMEOUT_MS` | **可选**。默认 `45000`；意图分类 LLM 单次调用超时（毫秒），超时走关键词兜底。 |
 
 ## 渠道（企业微信等）
 

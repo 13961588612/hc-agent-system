@@ -1,5 +1,7 @@
 import type { EnvConfig } from "../config/envConfig.js";
 
+export type { IntentResult } from "./schemas.js";
+
 /** 主→子：统一任务下发协议 */
 export interface SubTaskEnvelope<TInputs = unknown> {
   /** 子任务唯一标识，与结果、artifact 对齐 */
@@ -115,6 +117,11 @@ export interface DataQueryInput {
   env: EnvConfig;
   sqlQuery?: DataQuerySqlItem;
   sqlQueries?: DataQuerySqlItem[];
+  /** 意图节点解析槽位，子图优先用于路由与演示 SQL 参数 */
+  resolvedSlots?: Record<string, unknown>;
+  /** 与 `dataQueryDomain` 成对，用于子图 domain_router（第二期） */
+  targetIntent?: string;
+  dataQueryDomain?: QueryDomain;
 }
 
 /** 执行计划中单步：SQL */

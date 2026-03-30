@@ -5,11 +5,25 @@ import { runSqlQuerySkill } from "../../skills/core/sqlQuerySkill.js";
 import type { DataQueryInput, DataQueryResult, QueryDomain } from "../../contracts/types.js";
 import { DataQueryState, DataQueryStateSchema } from "../../contracts/schemas.js";
 import type { Runnable } from "@langchain/core/runnables";
+import { logDebugStep } from "../../infra/debugLog.js";
 
 /** 单任务内 LLM 注入 SQL 条数上限 */
 const MAX_SQL_QUERIES = 10;
 
 const MEMBER_DB_KEY = "member";
+
+/**
+ * 演示 SQL 用户参数：优先 `resolvedSlots.user_id` / `userId` / `phone`，否则 `input.userId`。
+ */
+function effectiveDemoUserId(input: DataQueryInput): string {
+  const s = input.resolvedSlots;
+  const fromSlot =
+    (s && typeof s["user_id"] === "string" && s["user_id"].trim()) ||
+    (s && typeof s["userId"] === "string" && s["userId"].trim()) ||
+    (s && typeof s["phone"] === "string" && s["phone"].trim());
+  if (fromSlot) return fromSlot;
+  return input.userId?.trim() || "demo-user";
+}
 
 /**
  * 按连接键解析客户端；若无则回退 `default`，再回退 Dummy。
@@ -50,6 +64,11 @@ async function runSqlQuerySkillWithOptionalFallback(
 const builder = new StateGraph(DataQueryStateSchema);
 
 builder.addNode("domain_router", (state: DataQueryState) => {
+  logDebugStep(
+    "[DataQuery]",
+    "node domain_router",
+    `sqlQueries=${state.input.sqlQueries?.length ?? 0} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} structured=${Boolean(state.input.dataQueryDomain && state.input.targetIntent?.trim())}`
+  );
   if (state.input.sqlQueries?.length) {
     return {
       ...state,
@@ -63,6 +82,15 @@ builder.addNode("domain_router", (state: DataQueryState) => {
       ...state,
       queryDomain: "member" as QueryDomain,
       queryIntent: "llm_sql"
+    };
+  }
+
+  /** 第二期：意图节点下发的域 + 目标意图，优先于关键词猜意图 */
+  if (state.input.dataQueryDomain && state.input.targetIntent?.trim()) {
+    return {
+      ...state,
+      queryDomain: state.input.dataQueryDomain,
+      queryIntent: state.input.targetIntent.trim()
     };
   }
 
@@ -82,6 +110,11 @@ builder.addNode("domain_router", (state: DataQueryState) => {
 });
 
 builder.addNode("execute_query", async (state: DataQueryState) => {
+  logDebugStep(
+    "[DataQuery]",
+    "node execute_query 开始",
+    `queryDomain=${state.queryDomain ?? ""} queryIntent=${state.queryIntent ?? ""}`
+  );
   const demoDb = resolveDbClientByKey("default");
 
   if (state.input.sqlQueries?.length) {
@@ -111,6 +144,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
       const dbKey = item.dbClientKey?.trim() || "default";
       const db = resolveDbClientByKey(dbKey);
       const params = item.params ?? [];
+      const tSql = Date.now();
       try {
         const sqlResult = await runSqlQuerySkillWithOptionalFallback(
           sql,
@@ -118,6 +152,12 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
           purpose,
           dbKey,
           db
+        );
+        logDebugStep(
+          "[DataQuery]",
+          `SQL 批量第 ${i + 1}/${list.length} 条成功`,
+          `label=${label}`,
+          tSql
         );
         tables.push({
           name: label,
@@ -127,6 +167,12 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
         steps.push({ kind: "sql" as const, id: label, sql, params });
       } catch (e) {
         stepErrors[label] = e instanceof Error ? e.message : String(e);
+        logDebugStep(
+          "[DataQuery]",
+          `SQL 批量第 ${i + 1}/${list.length} 条失败`,
+          `label=${label} err=${stepErrors[label]?.slice(0, 120)}`,
+          tSql
+        );
       }
     }
 
@@ -178,6 +224,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
     const params = item.params ?? [];
 
     try {
+      const tSql = Date.now();
       const sqlResult = await runSqlQuerySkillWithOptionalFallback(
         sql,
         params,
@@ -185,6 +232,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
         dbKey,
         db
       );
+      logDebugStep("[DataQuery]", "单条 LLM SQL 执行完成", `label=${label}`, tSql);
       const result: DataQueryResult = {
         domain: "member",
         intent: label,
@@ -220,11 +268,11 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
   if (state.queryDomain === "member" && state.queryIntent === "member_points_recent") {
     sql =
       "SELECT change, reason, created_at FROM member_points WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5";
-    params = [state.input.userId ?? "demo-user"];
+    params = [effectiveDemoUserId(state.input)];
   } else if (state.queryDomain === "ecommerce" && state.queryIntent === "ecom_orders_recent") {
     sql =
       "SELECT order_id, status, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5";
-    params = [state.input.userId ?? "demo-user"];
+    params = [effectiveDemoUserId(state.input)];
   } else {
     return {
       ...state,
@@ -238,7 +286,14 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
     };
   }
 
+  const tDemo = Date.now();
   const sqlResult = await runSqlQuerySkill({ sql, params }, demoDb);
+  logDebugStep(
+    "[DataQuery]",
+    "演示 SQL 执行完成",
+    `intent=${state.queryIntent ?? ""} userParamLen=${effectiveDemoUserId(state.input).length}`,
+    tDemo
+  );
   const result: DataQueryResult = {
     domain: state.queryDomain ?? "other",
     intent: state.queryIntent ?? "unknown",
@@ -265,7 +320,14 @@ const dataQueryApp = builder.compile() as unknown as Runnable<
 >;
 
 export async function runDataQueryGraph(input: DataQueryInput): Promise<DataQueryResult> {
+  const t0 = Date.now();
+  logDebugStep(
+    "[DataQuery]",
+    "子图 dataQueryApp.invoke 开始",
+    `userInputLen=${input.userInput.length} sqlQueries=${input.sqlQueries?.length ?? 0} hasSqlQuery=${Boolean(input.sqlQuery?.sql?.trim())} targetIntent=${input.targetIntent ?? ""} dataQueryDomain=${input.dataQueryDomain ?? ""} resolvedSlotKeys=${input.resolvedSlots ? Object.keys(input.resolvedSlots).join(",") : ""}`
+  );
   const result = await dataQueryApp.invoke({ input });
+  logDebugStep("[DataQuery]", "子图 dataQueryApp.invoke 结束", undefined, t0);
   return result.result ?? {
     domain: "other",
     intent: "unknown",

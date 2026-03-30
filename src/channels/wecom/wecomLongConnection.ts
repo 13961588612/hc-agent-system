@@ -1,5 +1,6 @@
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
 import type { EnvConfig } from "../../config/envConfig.js";
+import { logDebugStep } from "../../infra/debugLog.js";
 import { runOrchestratorGraph } from "../../graph/orchestrator/orchestratorGraph.js";
 import type { WeComChannelConfig, WeComLongConnectionConfig } from "./wecomConfig.js";
 import { formatFinalAnswerForChannel } from "./wecomReplyFormat.js";
@@ -42,6 +43,8 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
     console.log(`[WeCom-WS] 收到文本 user=${userId} text=${text.slice(0, 200)}`);
 
     try {
+      const tAll = Date.now();
+      logDebugStep("[WeCom-WS]", "runOrchestratorGraph 调用前", `thread_id=${threadId}`);
       const result = await runOrchestratorGraph(
         {
           userInput: text,
@@ -51,10 +54,19 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
         },
         { configurable: { thread_id: threadId } }
       );
+      logDebugStep("[WeCom-WS]", "runOrchestratorGraph 返回", undefined, tAll);
 
       const replyText = formatFinalAnswerForChannel(result);
       const streamId = generateReqId("stream");
+      const tReply = Date.now();
+      logDebugStep(
+        "[WeCom-WS]",
+        "replyStream 发送前",
+        `replyLen=${replyText.length}`
+      );
       await wsClient.replyStream(frame, streamId, replyText.slice(0, 20480), true);
+      logDebugStep("[WeCom-WS]", "replyStream 完成", undefined, tReply);
+      logDebugStep("[WeCom-WS]", "本条消息处理完成", undefined, tAll);
     } catch (e) {
       console.error("[WeCom-WS] 编排或回复失败:", e);
       try {

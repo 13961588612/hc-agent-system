@@ -3,14 +3,34 @@ import { runDataQueryAgent } from "../../agents/dataQueryAgent.js";
 import { writeArtifactInput } from "../../artifacts/fsArtifacts.js";
 import type { DataQueryInput, SubTaskEnvelope, SubTaskResult } from "../../contracts/types.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
+import { logDebugStep } from "../../infra/debugLog.js";
 
 export async function executeDataQueryNode(
   state: OrchestratorState,
   config?: { configurable?: { thread_id?: string } }
 ): Promise<Partial<OrchestratorState>> {
-  if (state.highLevelDomain !== "data_query") {
-    return state;
+  const t0 = Date.now();
+  const ir = state.intentResult;
+  if (
+    !ir ||
+    ir.needsClarification ||
+    ir.primaryIntent !== "data_query" ||
+    (ir.missingSlots?.length ?? 0) > 0
+  ) {
+    logDebugStep(
+      "[Orchestrator]",
+      "node execute_data_query 跳过（守卫）",
+      `reason=${!ir ? "no_intentResult" : ir.needsClarification ? "needs_clarification" : ir.missingSlots?.length ? "missing_slots" : "not_data_query"}`,
+      t0
+    );
+    return {};
   }
+
+  logDebugStep(
+    "[Orchestrator]",
+    "node execute_data_query 开始",
+    `hasSqlQueries=${Boolean(state.input.sqlQueries?.length)} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} targetIntent=${ir.targetIntent ?? ""} dataQueryDomain=${ir.dataQueryDomain ?? ""}`
+  );
 
   const taskId = nanoid();
   const threadId = config?.configurable?.thread_id ?? `thread-${nanoid()}`;
@@ -31,6 +51,12 @@ export async function executeDataQueryNode(
       } else if (state.input.sqlQuery?.sql?.trim()) {
         base.sqlQuery = state.input.sqlQuery;
       }
+      const slots = ir.resolvedSlots;
+      if (slots && Object.keys(slots).length > 0) {
+        base.resolvedSlots = slots;
+      }
+      if (ir.targetIntent?.trim()) base.targetIntent = ir.targetIntent.trim();
+      if (ir.dataQueryDomain) base.dataQueryDomain = ir.dataQueryDomain;
       return base;
     })(),
     expectedOutputSchema: { name: "DataQueryResult", version: "1.0" }
@@ -38,10 +64,23 @@ export async function executeDataQueryNode(
 
   await writeArtifactInput(threadId, taskId, envelope);
 
+  const tAgent = Date.now();
   const subResult: SubTaskResult = await runDataQueryAgent(envelope);
+  logDebugStep(
+    "[Orchestrator]",
+    "runDataQueryAgent 结束",
+    `taskId=${taskId} status=${subResult.status}`,
+    tAgent
+  );
+
+  logDebugStep(
+    "[Orchestrator]",
+    "node execute_data_query 结束",
+    `taskId=${taskId}`,
+    t0
+  );
 
   return {
-    ...state,
     resultsIndex: {
       ...(state.resultsIndex ?? {}),
       [taskId]: {
