@@ -31,7 +31,7 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
     console.warn("[WeCom-WS] 断开:", reason);
   });
 
-  wsClient.on("message.text", async (frame) => {
+  wsClient.on("message.text", async (frame: { body: any; }) => {
     const body = frame.body;
     const text = body?.text?.content?.trim() ?? "";
     const userId = body?.from?.userid ?? "unknown";
