@@ -1,6 +1,6 @@
 import { getMaxClarificationRounds } from "../../config/intentPolicy.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
-import { logDebugStep } from "../../infra/debugLog.js";
+import { log } from "../../lib/log/log.js";
 
 /** 非澄清类回复：清空追问 streak */
 const clearedClarification = {
@@ -41,7 +41,7 @@ function logComposeDone(
     fa && typeof fa === "object" && fa !== null && "type" in fa
       ? String((fa as { type: unknown }).type)
       : typeof fa;
-  logDebugStep("[Orchestrator]", "node compose_answer 结束", `finalAnswer.type=${hint}`, t0);
+  log("[Orchestrator]", "node compose_answer 结束", `finalAnswer.type=${hint}`, t0);
   return partial;
 }
 
@@ -50,7 +50,7 @@ export function composeAnswerNode(
 ): Partial<OrchestratorState> {
   const t0 = Date.now();
   const riKeys = state.resultsIndex ? Object.keys(state.resultsIndex).length : 0;
-  logDebugStep(
+  log(
     "[Orchestrator]",
     "node compose_answer 开始",
     `primaryIntent=${state.intentResult?.primaryIntent ?? "none"} resultsIndexKeys=${riKeys} clarificationRound=${state.clarificationRound ?? 0}`
@@ -61,7 +61,7 @@ export function composeAnswerNode(
   const round = state.clarificationRound ?? 0;
 
   if (wantsClarification(ir) && round >= maxR) {
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "clarification 达上限",
       `round=${round} max=${maxR}`,

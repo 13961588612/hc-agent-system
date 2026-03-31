@@ -1,11 +1,11 @@
 import { START, StateGraph } from "@langchain/langgraph";
 import { tryGetDbClientManager } from "../../config/dbAppContext.js";
-import { DummyDbClient, type DbClient, type SqlQueryResult } from "../../infra/dbClient.js";
-import { runSqlQuerySkill } from "../../skills/core/sqlQuerySkill.js";
+import { DummyDbClient, type DbClient, type SqlQueryResult } from "../../lib/infra/dbClient.js";
+import { runSqlQuerySkill } from "../../lib/skills/core/sqlQuerySkill.js";
 import type { DataQueryInput, DataQueryResult, QueryDomain } from "../../contracts/types.js";
 import { DataQueryState, DataQueryStateSchema } from "../../contracts/schemas.js";
 import type { Runnable } from "@langchain/core/runnables";
-import { logDebugStep } from "../../infra/debugLog.js";
+import { log } from "../../lib/log/log.js";
 
 /** 单任务内 LLM 注入 SQL 条数上限 */
 const MAX_SQL_QUERIES = 10;
@@ -64,7 +64,7 @@ async function runSqlQuerySkillWithOptionalFallback(
 const builder = new StateGraph(DataQueryStateSchema);
 
 builder.addNode("domain_router", (state: DataQueryState) => {
-  logDebugStep(
+  log(
     "[DataQuery]",
     "node domain_router",
     `sqlQueries=${state.input.sqlQueries?.length ?? 0} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} structured=${Boolean(state.input.dataQueryDomain && state.input.targetIntent?.trim())}`
@@ -110,7 +110,7 @@ builder.addNode("domain_router", (state: DataQueryState) => {
 });
 
 builder.addNode("execute_query", async (state: DataQueryState) => {
-  logDebugStep(
+  log(
     "[DataQuery]",
     "node execute_query 开始",
     `queryDomain=${state.queryDomain ?? ""} queryIntent=${state.queryIntent ?? ""}`
@@ -153,7 +153,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
           dbKey,
           db
         );
-        logDebugStep(
+        log(
           "[DataQuery]",
           `SQL 批量第 ${i + 1}/${list.length} 条成功`,
           `label=${label}`,
@@ -167,7 +167,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
         steps.push({ kind: "sql" as const, id: label, sql, params });
       } catch (e) {
         stepErrors[label] = e instanceof Error ? e.message : String(e);
-        logDebugStep(
+        log(
           "[DataQuery]",
           `SQL 批量第 ${i + 1}/${list.length} 条失败`,
           `label=${label} err=${stepErrors[label]?.slice(0, 120)}`,
@@ -232,7 +232,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
         dbKey,
         db
       );
-      logDebugStep("[DataQuery]", "单条 LLM SQL 执行完成", `label=${label}`, tSql);
+      log("[DataQuery]", "单条 LLM SQL 执行完成", `label=${label}`, tSql);
       const result: DataQueryResult = {
         domain: "member",
         intent: label,
@@ -288,7 +288,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
 
   const tDemo = Date.now();
   const sqlResult = await runSqlQuerySkill({ sql, params }, demoDb);
-  logDebugStep(
+  log(
     "[DataQuery]",
     "演示 SQL 执行完成",
     `intent=${state.queryIntent ?? ""} userParamLen=${effectiveDemoUserId(state.input).length}`,
@@ -321,13 +321,13 @@ const dataQueryApp = builder.compile() as unknown as Runnable<
 
 export async function runDataQueryGraph(input: DataQueryInput): Promise<DataQueryResult> {
   const t0 = Date.now();
-  logDebugStep(
+  log(
     "[DataQuery]",
     "子图 dataQueryApp.invoke 开始",
     `userInputLen=${input.userInput.length} sqlQueries=${input.sqlQueries?.length ?? 0} hasSqlQuery=${Boolean(input.sqlQuery?.sql?.trim())} targetIntent=${input.targetIntent ?? ""} dataQueryDomain=${input.dataQueryDomain ?? ""} resolvedSlotKeys=${input.resolvedSlots ? Object.keys(input.resolvedSlots).join(",") : ""}`
   );
   const result = await dataQueryApp.invoke({ input });
-  logDebugStep("[DataQuery]", "子图 dataQueryApp.invoke 结束", undefined, t0);
+  log("[DataQuery]", "子图 dataQueryApp.invoke 结束", undefined, t0);
   return result.result ?? {
     domain: "other",
     intent: "unknown",

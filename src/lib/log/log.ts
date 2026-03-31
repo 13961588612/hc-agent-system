@@ -1,7 +1,7 @@
 /**
  * 联调/排障：统一前缀 + 可选耗时，便于 grep `[Orchestrator]`、`[WeCom-WS]` 等。
  */
-export function logDebugStep(
+export function log(
   scope:
     | "[Orchestrator]"
     | "[Intent]"

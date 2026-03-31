@@ -1,7 +1,7 @@
 import { initCore } from "./bootstrap/initCore.js";
-import { startWeComLongConnection } from "./channels/wecom/wecomLongConnection.js";
-import { startWeComHttpServer } from "./channels/wecom/wecomHttpServer.js";
-import { loadWeComConfig, type WeComChannelConfig } from "./channels/wecom/wecomConfig.js";
+import { startWeComLongConnection } from "./lib/channels/wecom/wecomLongConnection.js";
+import { startWeComHttpServer } from "./lib/channels/wecom/wecomHttpServer.js";
+import { loadWeComConfig, type WeComChannelConfig } from "./lib/channels/wecom/wecomConfig.js";
 import { loadChannelsConfig, type ChannelsConfig } from "./config/channelsConfig.js";
 import { runSupervisorAgent } from "./agents/supervisorAgent.js";
 

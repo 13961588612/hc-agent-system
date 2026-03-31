@@ -7,7 +7,7 @@ import {
 import { listIntentRules } from "../intent/intentRuleRegistry.js";
 import type { IntentRuleEntry } from "../intent/types.js";
 import { getIntentLlmTimeoutMs } from "../config/intentPolicy.js";
-import { logDebugStep } from "../infra/debugLog.js";
+import { log } from "../lib/log/log.js";
 import { getModel } from "../model/index.js";
 
 const INTENT_JSON_INSTRUCTION_BASE = `你是客服场景的意图分类器。根据用户最新一句（可结合简短对话上文）输出**仅一段 JSON 对象**，不要 markdown、不要解释。
@@ -210,7 +210,7 @@ export async function runIntentClassifyAgent(
 ): Promise<Pick<OrchestratorState, "intentResult" | "highLevelDomain">> {
   const userInput = state.input.userInput;
   const tAll = Date.now();
-  logDebugStep(
+  log(
     "[Intent]",
     "classify 开始",
     `userInputLen=${userInput.length} historyTurns=${(state.conversationTurns ?? []).length}`
@@ -228,7 +228,7 @@ export async function runIntentClassifyAgent(
     const instruction = buildIntentInstructionFromRules();
     const tLlm = Date.now();
     const timeoutMs = getIntentLlmTimeoutMs();
-    logDebugStep(
+    log(
       "[Intent]",
       "getModel + LLM invoke 开始",
       `timeoutMs=${timeoutMs}`
@@ -243,17 +243,17 @@ export async function runIntentClassifyAgent(
         setTimeout(() => rej(new Error("intent_llm_timeout")), timeoutMs);
       })
     ]);
-    logDebugStep("[Intent]", "LLM invoke 结束（原始响应已收到）", undefined, tLlm);
+    log("[Intent]", "LLM invoke 结束（原始响应已收到）", undefined, tLlm);
     const text = messageContentToString(raw.content);
     const jsonStr = extractJsonObject(text);
-    logDebugStep(
+    log(
       "[Intent]",
       "LLM 原始结构化输出（截断）",
       safeJsonSnippet(jsonStr, 1000)
     );
     const parsed = JSON.parse(jsonStr) as unknown;
     const intent = IntentResultSchema.parse(parsed);
-    logDebugStep(
+    log(
       "[Intent]",
       "结构化字段评估",
       safeJsonSnippet(
@@ -269,7 +269,7 @@ export async function runIntentClassifyAgent(
         1200
       )
     );
-    logDebugStep(
+    log(
       "[Intent]",
       "classify 成功（JSON 已校验）",
       `primaryIntent=${intent.primaryIntent} needsClarification=${String(intent.needsClarification)} targetIntent=${intent.targetIntent ?? ""} dataQueryDomain=${intent.dataQueryDomain ?? ""} missingSlots=${(intent.missingSlots ?? []).join(",") || "none"}`,
@@ -280,9 +280,9 @@ export async function runIntentClassifyAgent(
     const intent = keywordFallbackIntent(userInput);
     const errMsg = e instanceof Error ? e.message : String(e);
     if (errMsg === "intent_llm_timeout") {
-      logDebugStep("[Intent]", "LLM 超时 → 关键词兜底", `timeoutMs=${getIntentLlmTimeoutMs()}`, tAll);
+      log("[Intent]", "LLM 超时 → 关键词兜底", `timeoutMs=${getIntentLlmTimeoutMs()}`, tAll);
     } else {
-      logDebugStep(
+      log(
         "[Intent]",
         "classify 失败 → 关键词兜底",
         `primaryIntent=${intent.primaryIntent} err=${errMsg.slice(0, 120)}`,

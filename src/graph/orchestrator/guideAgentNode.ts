@@ -2,18 +2,18 @@ import type {
   GuideCapabilityMeta,
   GuideParamsBlock,
   SkillGuideEntry
-} from "../../guides/types.js";
+} from "../../lib/guides/types.js";
 import {
   findGuideCapabilityByKey,
   listGuides
-} from "../../guides/guideRegistry.js";
-import { validateGuideSlots } from "../../guides/slotValidation.js";
+} from "../../lib/guides/guideRegistry.js";
+import { validateGuideSlots } from "../../lib/guides/slotValidation.js";
 import {
   bindFirstInClause,
   extractCapabilitySqlTemplate
-} from "../../guides/sqlTemplateBind.js";
+} from "../../lib/guides/sqlTemplateBind.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
-import { logDebugStep } from "../../infra/debugLog.js";
+import { log } from "../../lib/log/log.js";
 
 function normalizeStringList(v: unknown, max: number): string[] {
   if (Array.isArray(v)) {
@@ -166,7 +166,7 @@ export function guideAgentNode(
     ir.needsClarification ||
     (ir.missingSlots?.length ?? 0) > 0
   ) {
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "node guide_agent 跳过",
       "非 data_query 或意图层已澄清/缺槽",
@@ -183,7 +183,7 @@ export function guideAgentNode(
 
   const match = resolveGuideMatch(state);
   if (!match) {
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "node guide_agent 无匹配 Guide",
       `targetIntent=${ir.targetIntent ?? ""}`,
@@ -212,7 +212,7 @@ export function guideAgentNode(
   const validation = validateGuideSlots(paramsBlock, guideResolvedParams);
 
   if (!validation.satisfied) {
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "node guide_agent 缺 Guide 槽位",
       `missing=${validation.missing.join(",")}`,
@@ -228,7 +228,7 @@ export function guideAgentNode(
   }
 
   if (!shouldRunSql(capability)) {
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "node guide_agent execution 非 sql-query",
       capability.execution?.skillId ?? "",
@@ -245,7 +245,7 @@ export function guideAgentNode(
 
   const rawSql = extractCapabilitySqlTemplate(guide.body, capability.id);
   if (!rawSql?.trim()) {
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "node guide_agent 未找到 SQL 模板",
       `capability=${capability.id}`,
@@ -277,7 +277,7 @@ export function guideAgentNode(
       typeof ir.confidence === "number" &&
       ir.confidence < minC
     ) {
-      logDebugStep(
+      log(
         "[Orchestrator]",
         "node guide_agent 置信度低于 minConfidence，不注入 SQL",
         `confidence=${ir.confidence} min=${minC}`,
@@ -292,7 +292,7 @@ export function guideAgentNode(
       };
     }
 
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "node guide_agent 已绑定 SQL",
       `guide=${guide.id} capability=${capability.id}`,
@@ -318,7 +318,7 @@ export function guideAgentNode(
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "node guide_agent 模板绑定失败",
       msg.slice(0, 200),

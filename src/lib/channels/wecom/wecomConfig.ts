@@ -2,8 +2,8 @@
  * 企业微信渠道：HTTP 回调与智能机器人长连接（WebSocket）。
  * 详见 `docs/channel-wecom.md` 与 `config/channels.example.yaml`。
  */
-import type { ChannelsConfig } from "../../config/channelsConfig.js";
-import  type { EnvConfig } from "../../config/envConfig.ts";
+import type { ChannelsConfig } from "../../../config/channelsConfig.js";
+import  type { EnvConfig } from "../../../config/envConfig.js";
 
 /** 接入方式：长连接（默认）| HTTP 回调 */
 export type WeComTransportMode = "long_connection" | "http_callback";

@@ -3,9 +3,9 @@ import {
   writeArtifactResult,
   writeArtifactSummary,
   writeArtifactDebug
-} from "../artifacts/fsArtifacts.js";
+} from "../lib/artifacts/fsArtifacts.js";
 import { runDataQueryGraph } from "../graph/data-query/dataQueryGraph.js";
-import { logDebugStep } from "../infra/debugLog.js";
+import { log } from "../lib/log/log.js";
 import type {
   DataQueryInput,
   DataQueryResult,
@@ -21,9 +21,9 @@ export async function runDataQueryAgent(
   await writeArtifactInput(threadId, taskId, envelope);
 
   const tGraph = Date.now();
-  logDebugStep("[DataQuery]", "runDataQueryGraph 开始", `taskId=${taskId}`);
+  log("[DataQuery]", "runDataQueryGraph 开始", `taskId=${taskId}`);
   const data = await runDataQueryGraph(inputs);
-  logDebugStep(
+  log(
     "[DataQuery]",
     "runDataQueryGraph 结束",
     `domain=${data.domain} intent=${data.intent} dataType=${data.dataType}`,

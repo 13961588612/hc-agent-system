@@ -1,10 +1,10 @@
-import { createDbClientManager } from "../infra/dbClientFactory.js";
+import { createDbClientManager } from "../lib/infra/dbClientFactory.js";
 import { initDbClientManager } from "../config/dbAppContext.js";
 import { loadEnvConfig, type EnvConfig } from "../config/envConfig.js";
 import { loadDatabasesConfig } from "../config/databasesConfig.js";
-import { discoverAndRegisterGuides } from "../guides/scanGuides.js";
+import { discoverAndRegisterGuides } from "../lib/guides/scanGuides.js";
 import { discoverAndRegisterIntentRules } from "../intent/scanIntentRules.js";
-import { createDefaultDbClientManager, type DbClientManager } from "../infra/dbClientManager.js";
+import { createDefaultDbClientManager, type DbClientManager } from "../lib/infra/dbClientManager.js";
 
 export interface InitCoreResult {
   env: EnvConfig;

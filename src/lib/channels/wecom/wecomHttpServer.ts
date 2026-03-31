@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { EnvConfig } from "../../config/envConfig.js";
-import { logDebugStep } from "../../infra/debugLog.js";
-import { runOrchestratorGraph } from "../../graph/orchestrator/orchestratorGraph.js";
+import type { EnvConfig } from "../../../config/envConfig.js";
+import { log } from "../../log/log.js";
+import { runOrchestratorGraph } from "../../../graph/orchestrator/orchestratorGraph.js";
 import type { WeComChannelConfig } from "./wecomConfig.js";
 import {
   decryptEchoStr,
@@ -117,7 +117,7 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
       console.log(`[WeCom] 收到消息 user=${userId} text=${text.slice(0, 200)}`);
 
       const tAll = Date.now();
-      logDebugStep("[WeCom-HTTP]", "runOrchestratorGraph 调用前", `thread_id=${threadId}`);
+      log("[WeCom-HTTP]", "runOrchestratorGraph 调用前", `thread_id=${threadId}`);
       const result = await runOrchestratorGraph(
         {
           userInput: text,
@@ -127,7 +127,7 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
         },
         { configurable: { thread_id: threadId } }
       );
-      logDebugStep("[WeCom-HTTP]", "runOrchestratorGraph 返回", undefined, tAll);
+      log("[WeCom-HTTP]", "runOrchestratorGraph 返回", undefined, tAll);
 
       const replyText = formatFinalAnswerForChannel(result);
 
@@ -137,13 +137,13 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
       if (canSend) {
         try {
           const tSend = Date.now();
-          logDebugStep(
+          log(
             "[WeCom-HTTP]",
             "sendWeComTextMessage 调用前",
             `replyLen=${replyText.length}`
           );
           await sendWeComTextMessage(cfg as WeComChannelConfig, userId, replyText);
-          logDebugStep("[WeCom-HTTP]", "sendWeComTextMessage 完成", undefined, tSend);
+          log("[WeCom-HTTP]", "sendWeComTextMessage 完成", undefined, tSend);
         } catch (e) {
           console.error("[WeCom] 主动回复失败:", e);
         }
@@ -151,7 +151,7 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
         console.log("[WeCom] 编排结果（未配置 Webhook 或应用发消息）:", replyText.slice(0, 500));
       }
 
-      logDebugStep("[WeCom-HTTP]", "本条消息处理完成", undefined, tAll);
+      log("[WeCom-HTTP]", "本条消息处理完成", undefined, tAll);
       send(res, 200, "success");
     } catch (e) {
       console.error("[WeCom] POST 处理失败:", e);

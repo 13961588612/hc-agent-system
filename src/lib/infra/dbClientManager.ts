@@ -41,11 +41,12 @@ export class DbClientManager {
   }
 }
 
+export const dbClientManager = new DbClientManager();
+
+dbClientManager.register("default", new DummyDbClient());
 /**
  * 带 `default` 键的 {@link DummyDbClient}，与阶段一 Demo 行为一致。
  */
-export function createDefaultDbClientManager(): DbClientManager {
-  const m = new DbClientManager();
-  m.register("default", new DummyDbClient());
-  return m;
+export function getDefaultDbClientManager(): DbClientManager {
+  return dbClientManager;
 }

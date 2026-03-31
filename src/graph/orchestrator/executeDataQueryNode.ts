@@ -1,9 +1,9 @@
 import { nanoid } from "nanoid";
 import { runDataQueryAgent } from "../../agents/dataQueryAgent.js";
-import { writeArtifactInput } from "../../artifacts/fsArtifacts.js";
+import { writeArtifactInput } from "../../lib/artifacts/fsArtifacts.js";
 import type { DataQueryInput, SubTaskEnvelope, SubTaskResult } from "../../contracts/types.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
-import { logDebugStep } from "../../infra/debugLog.js";
+import { log } from "../../lib/log/log.js";
 
 export async function executeDataQueryNode(
   state: OrchestratorState,
@@ -17,7 +17,7 @@ export async function executeDataQueryNode(
     ir.primaryIntent !== "data_query" ||
     (ir.missingSlots?.length ?? 0) > 0
   ) {
-    logDebugStep(
+    log(
       "[Orchestrator]",
       "node execute_data_query 跳过（守卫）",
       `reason=${!ir ? "no_intentResult" : ir.needsClarification ? "needs_clarification" : ir.missingSlots?.length ? "missing_slots" : "not_data_query"}`,
@@ -26,7 +26,7 @@ export async function executeDataQueryNode(
     return {};
   }
 
-  logDebugStep(
+  log(
     "[Orchestrator]",
     "node execute_data_query 开始",
     `hasSqlQueries=${Boolean(state.input.sqlQueries?.length)} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} targetIntent=${ir.targetIntent ?? ""} dataQueryDomain=${ir.dataQueryDomain ?? ""}`
@@ -66,14 +66,14 @@ export async function executeDataQueryNode(
 
   const tAgent = Date.now();
   const subResult: SubTaskResult = await runDataQueryAgent(envelope);
-  logDebugStep(
+  log(
     "[Orchestrator]",
     "runDataQueryAgent 结束",
     `taskId=${taskId} status=${subResult.status}`,
     tAgent
   );
 
-  logDebugStep(
+  log(
     "[Orchestrator]",
     "node execute_data_query 结束",
     `taskId=${taskId}`,

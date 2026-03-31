@@ -3,7 +3,7 @@ import { DummyDbClient } from "./dummyDbClient.js";
 import { MysqlDbClient } from "./mysqlDbClient.js";
 import { OracleDbClient } from "./oracleDbClient.js";
 import { DbClientManager } from "./dbClientManager.js";
-import type { DatabaseConnectionConfig, DatabasesConfig } from "../config/databasesConfig.js";
+import type { DatabaseConnectionConfig, DatabasesConfig } from "../../config/databasesConfig.js";
 
 /**
  * 按配置为每个逻辑名注册 {@link DbClient}。

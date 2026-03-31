@@ -16,7 +16,7 @@ import {
   OrchestratorStateSchema
 } from "../../contracts/schemas.js";
 import { getClarificationIdleMs } from "../../config/intentPolicy.js";
-import { logDebugStep } from "../../infra/debugLog.js";
+import { log } from "../../lib/log/log.js";
 
 const builder = new StateGraph(OrchestratorStateSchema);
 
@@ -35,7 +35,7 @@ function routeAfterIntent(
   else if (ir.missingSlots?.length) next = "compose_answer";
   else if (ir.primaryIntent === "data_query") next = "guide_agent";
   else next = "compose_answer";
-  logDebugStep(
+  log(
     "[Orchestrator]",
     "route_after_intent",
     `next=${next} primaryIntent=${ir?.primaryIntent ?? "none"} needsClarification=${String(ir?.needsClarification)} missingSlots=${(ir?.missingSlots ?? []).join(",") || "none"} targetIntent=${ir?.targetIntent ?? ""}`
@@ -91,7 +91,7 @@ export async function runOrchestratorGraph(
     config ?? { configurable: { thread_id: `thread-${nanoid()}` } };
   const threadId = runConfig.configurable?.thread_id ?? "";
   const t0 = Date.now();
-  logDebugStep(
+  log(
     "[Orchestrator]",
     "graph invoke 开始",
     `thread_id=${threadId} channel=${input.channel ?? ""} userInputLen=${input.userInput.length}`
@@ -115,7 +115,7 @@ export async function runOrchestratorGraph(
       ) {
         patch.clarificationRound = 0;
         patch.lastClarificationAtMs = 0;
-        logDebugStep(
+        log(
           "[Orchestrator]",
           "澄清空闲超时，重置追问计数",
           `idleMs=${idleMs}`
@@ -135,7 +135,7 @@ export async function runOrchestratorGraph(
     fa && typeof fa === "object" && fa !== null && "type" in fa
       ? String((fa as { type: unknown }).type)
       : typeof fa;
-  logDebugStep(
+  log(
     "[Orchestrator]",
     "graph invoke 结束",
     `finalAnswer.type=${faHint}`,

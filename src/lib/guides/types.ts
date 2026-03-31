@@ -43,7 +43,7 @@ export interface GuideCapabilityMeta {
   /** 短说明：披露列表、消歧、选用条件摘要（与正文「触发」可互补） */
   description?: string;
   /** 可选；与意图/模板路由对齐；未写时编排可用 `id` 参与匹配 */
-  queryTemplateId?: string;
+  skillTemplateId?: string;
   params?: GuideParamsBlock;
   execution?: GuideExecution;
 }
@@ -62,7 +62,7 @@ export interface SkillGuideMeta {
    * 稳定查询模板 id，可与意图 `targetIntent` / 问数域主题映射。
    * 见 `docs/design-milestone6-skillguide-slots.md` §三。
    */
-  queryTemplateId?: string;
+  skillTemplateId?: string;
   /** 分布式槽位；未配置时 Guide 仍可作为纯说明文档 */
   params?: GuideParamsBlock;
   /** 执行契约；未配置时不走自动模板执行路径 */

@@ -1,4 +1,4 @@
-import type { DbClientManager } from "../infra/dbClientManager.js";
+import type { DbClientManager } from "../lib/infra/dbClientManager.js";
 
 let manager: DbClientManager | null = null;
 

@@ -3,9 +3,9 @@ import type { GuideCapabilityMeta, SkillGuideEntry } from "./types.js";
 const guides = new Map<string, SkillGuideEntry>();
 
 function guideMatchesQueryKey(g: SkillGuideEntry, q: string): boolean {
-  if (g.queryTemplateId === q) return true;
+  if (g.skillTemplateId === q) return true;
   for (const c of g.capabilities ?? []) {
-    if (c.id === q || c.queryTemplateId === q) return true;
+    if (c.id === q || c.skillTemplateId === q) return true;
   }
   return false;
 }
@@ -31,13 +31,13 @@ export function listGuidesByTag(tag: string): SkillGuideEntry[] {
 }
 
 /**
- * 按 `queryTemplateId`、或某条能力的 `id` / `queryTemplateId` 查找 Guide；
+ * 按 `skillTemplateId`、或某条能力的 `id` / `skillTemplateId` 查找 Guide；
  * 若多条相同键，以**先注册者**为准（扫描顺序）。
  */
-export function getGuideByQueryTemplateId(
-  queryTemplateId: string
+export function getGuideBySkillTemplateId(
+  skillTemplateId: string
 ): SkillGuideEntry | undefined {
-  const q = queryTemplateId.trim();
+  const q = skillTemplateId.trim();
   if (!q) return undefined;
   for (const g of guides.values()) {
     if (guideMatchesQueryKey(g, q)) return g;
@@ -57,9 +57,9 @@ export function findGuideCapabilityByKey(
   const q = key.trim();
   if (!q) return undefined;
   for (const g of guides.values()) {
-    if (g.queryTemplateId === q) return { guide: g, capability: undefined };
+    if (g.skillTemplateId === q) return { guide: g, capability: undefined };
     for (const c of g.capabilities ?? []) {
-      if (c.id === q || c.queryTemplateId === q)
+      if (c.id === q || c.skillTemplateId === q)
         return { guide: g, capability: c };
     }
   }
