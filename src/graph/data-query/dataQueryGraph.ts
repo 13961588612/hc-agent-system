@@ -1,7 +1,7 @@
 import { START, StateGraph } from "@langchain/langgraph";
 import { tryGetDbClientManager } from "../../config/dbAppContext.js";
 import { DummyDbClient, type DbClient, type SqlQueryResult } from "../../lib/infra/dbClient.js";
-import { runSqlQuerySkill } from "../../lib/skills/core/sqlQuerySkill.js";
+import { runSqlQuerySkill } from "../../lib/skills/sqlQuerySkill.js";
 import type { DataQueryInput, DataQueryResult, QueryDomain } from "../../contracts/types.js";
 import { DataQueryState, DataQueryStateSchema } from "../../contracts/schemas.js";
 import type { Runnable } from "@langchain/core/runnables";

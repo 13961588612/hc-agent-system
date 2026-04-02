@@ -10,7 +10,7 @@ export {
   clearGuides,
   findGuideCapabilityByKey,
   getGuide,
-  getGuideByQueryTemplateId,
+  getGuideBySkillTemplateId,
   listGuides,
   listGuidesByDomain,
   listGuidesByTag,
