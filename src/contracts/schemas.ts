@@ -127,7 +127,50 @@ export const IntentResultSchema = z.object({
   /** 模型对本次分类的置信度，0～1 */
   confidence: z.number().optional(),
   /** 闲聊、未知等场景下给用户的简短友好回复建议（非问数或无需澄清时） */
-  replySuggestion: z.string().optional()
+  replySuggestion: z.string().optional(),
+  /**
+   * 通用「拆分与编排」对象：
+   * - 承载 domain+segment 候选排序
+   * - 承载多子任务执行计划
+   * - 承载缺参与下一步动作（执行/澄清）
+   */
+  taskPlan: z
+    .object({
+      domainSegmentRanking: z
+        .array(
+          z.object({
+            domain: z.string(),
+            segment: z.string(),
+            score: z.number().optional(),
+            reason: z.string().optional()
+          })
+        )
+        .optional(),
+      subTasks: z
+        .array(
+          z.object({
+            taskId: z.string(),
+            goal: z.string(),
+            selectedEntry: z
+              .object({
+                kind: z.enum(["skill", "guide"]),
+                id: z.string()
+              })
+              .optional(),
+            executable: z.boolean(),
+            requiredParams: z.array(z.string()).optional(),
+            providedParams: z.record(z.string(), z.unknown()).optional(),
+            missingParams: z.array(z.string()).optional(),
+            plan: z.array(z.string()).optional(),
+            expectedOutput: z.enum(["table", "object", "summary"]).optional()
+          })
+        )
+        .optional(),
+      missingParamsSummary: z.array(z.string()).optional(),
+      nextAction: z.enum(["execute", "clarify"]).optional(),
+      finalSummary: z.string().optional()
+    })
+    .optional()
 });
 
 export type IntentResult = z.infer<typeof IntentResultSchema>;

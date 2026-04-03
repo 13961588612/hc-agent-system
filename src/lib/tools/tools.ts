@@ -20,8 +20,8 @@ export const TOOL_HANDLERS: Record<
   read_file: (kw) => runFileRead(kw["path"] as string, kw["limit"] as number | undefined),
   write_file: (kw) => runFileWrite(kw["path"] as string, kw["content"] as string),
   sql_query: (kw) => runSqlQueryTool(kw["sqlQueryInput"] as SqlSkillInput),
-  list_skills_by_domain_segment: (kw) => runListSkillsByDomainSegmentTool(kw),
-  get_skill_detail_by_id: (kw) => runGetSkillDetailByIdTool(kw),
+  list_skills_by_domain_segment: (kw) => runListSkillsByDomainSegmentTool(kw["domainId"] as string, kw["segmentId"] as string),
+  get_skill_detail_by_id: (kw) => runGetSkillDetailByIdTool(kw["skillId"] as string),
 };
 
 /** 主智能体可用工具（含 task） */

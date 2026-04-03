@@ -24,6 +24,12 @@ const INTENT_JSON_INSTRUCTION_BASE = `你是客服场景的意图分类器。根
 - targetIntent: string | 省略 — 仅在 data_query 时填写，优先使用「可用能力列表」中的 capability id
 - missingSlots: string[] | 省略 — 仅在 data_query 且仍缺**执行查询必填**槽位时列出槽位名（如 ["user_id"]）；槽位已齐则 [] 或省略
 - confidence: 0 到 1 之间的小数，可选
+- taskPlan: object | 省略 — 通用拆分与编排对象（可选）。结构建议：
+  - domainSegmentRanking: [{ domain, segment, score?, reason? }]（先按 domain+segment 给候选排序）
+  - subTasks: [{ taskId, goal, selectedEntry?, executable, requiredParams?, providedParams?, missingParams?, plan?, expectedOutput? }]
+  - missingParamsSummary: string[]（全局缺参汇总）
+  - nextAction: "execute" | "clarify"
+  - finalSummary: string
 
 规则：
 1. 若用户明显在问数据但信息不够，必须 needsClarification=true 并给出 clarificationQuestion；可同时列出 missingSlots。
@@ -186,6 +192,38 @@ function keywordFallbackIntent(userInput: string): IntentResult {
       targetIntent: rule?.targetIntent,
       ...(missingSlots.length ? { missingSlots } : {}),
       ...(clarificationQuestion ? { clarificationQuestion } : {}),
+      taskPlan: {
+        domainSegmentRanking: [
+          {
+            domain: rule?.domain ?? "other",
+            segment: rule?.domain ?? "other",
+            score: 0.5,
+            reason: rule ? `匹配规则 ${rule.id}` : "关键词兜底命中"
+          }
+        ],
+        subTasks: [
+          {
+            taskId: "task-1",
+            goal: "执行数据查询",
+            selectedEntry: rule?.targetIntent
+              ? { kind: "guide", id: rule.targetIntent }
+              : undefined,
+            executable: !needsClarification,
+            requiredParams: rule?.requiredSlots ?? [],
+            providedParams: resolvedSlots,
+            missingParams: missingSlots,
+            plan: needsClarification
+              ? undefined
+              : ["按目标意图构造查询入参", "执行数据查询子图并返回结果"],
+            expectedOutput: "table"
+          }
+        ],
+        missingParamsSummary: missingSlots,
+        nextAction: needsClarification ? "clarify" : "execute",
+        finalSummary: needsClarification
+          ? "存在缺失参数，需先澄清后执行。"
+          : "参数满足，可执行数据查询。"
+      },
       confidence: 0.5,
     };
   }
@@ -194,6 +232,13 @@ function keywordFallbackIntent(userInput: string): IntentResult {
     needsClarification: false,
     replySuggestion: "如需查询订单或会员积分等数据，请直接说明您的需求。",
     resolvedSlots: {},
+    taskPlan: {
+      domainSegmentRanking: [],
+      subTasks: [],
+      missingParamsSummary: [],
+      nextAction: "clarify",
+      finalSummary: "未识别为可执行数据查询，请先澄清需求。"
+    },
     confidence: 0.4
   };
 }

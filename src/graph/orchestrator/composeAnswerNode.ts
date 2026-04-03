@@ -12,7 +12,36 @@ function wantsClarification(ir: OrchestratorState["intentResult"]): boolean {
   if (!ir) return false;
   if (ir.needsClarification && ir.clarificationQuestion?.trim()) return true;
   if (ir.missingSlots?.length) return true;
+  if (ir.taskPlan?.nextAction === "clarify") return true;
+  if (ir.taskPlan?.missingParamsSummary?.length) return true;
   return false;
+}
+
+function planClarificationMessage(ir: OrchestratorState["intentResult"]): string | undefined {
+  if (!ir?.taskPlan) return undefined;
+  const summary = ir.taskPlan.missingParamsSummary ?? [];
+  if (summary.length > 0) {
+    return `请先补充以下信息后再执行：${summary.join("、")}`;
+  }
+  const missingFromTasks = (ir.taskPlan.subTasks ?? [])
+    .flatMap((t) => t.missingParams ?? [])
+    .filter((x, i, arr) => arr.indexOf(x) === i);
+  if (missingFromTasks.length > 0) {
+    return `请先补充以下信息后再执行：${missingFromTasks.join("、")}`;
+  }
+  return ir.taskPlan.finalSummary?.trim() || "当前任务仍需补充必要信息。";
+}
+
+function planExecutionPreviewMessage(ir: OrchestratorState["intentResult"]): string | undefined {
+  if (!ir?.taskPlan || ir.taskPlan.nextAction !== "execute") return undefined;
+  const executableTasks = (ir.taskPlan.subTasks ?? []).filter((t) => t.executable);
+  if (executableTasks.length === 0) return undefined;
+  const lines = executableTasks.slice(0, 3).map((t) => {
+    const entry = t.selectedEntry?.id ? `（${t.selectedEntry.id}）` : "";
+    return `${t.taskId}: ${t.goal}${entry}`;
+  });
+  const more = executableTasks.length > 3 ? `；其余 ${executableTasks.length - 3} 个子任务已省略` : "";
+  return `已拆分 ${executableTasks.length} 个可执行子任务：${lines.join("；")}${more}。`;
 }
 
 function assistantSnippetFromFinalAnswer(finalAnswer: unknown): string {
@@ -25,6 +54,9 @@ function assistantSnippetFromFinalAnswer(finalAnswer: unknown): string {
       return o.message.slice(0, 2000);
     }
     if (o.type === "fallback" && typeof o.message === "string") {
+      return o.message.slice(0, 2000);
+    }
+    if (o.type === "task_plan" && typeof o.message === "string") {
       return o.message.slice(0, 2000);
     }
     if (o.type === "data_query") return "已返回数据查询结果。";
@@ -107,6 +139,20 @@ export function composeAnswerNode(
     });
   }
 
+  /** 通用 taskPlan：需要澄清时，合成缺参追问 */
+  if (ir?.taskPlan?.nextAction === "clarify") {
+    const message = ir.clarificationQuestion?.trim() || planClarificationMessage(ir) || "请补充必要信息后继续。";
+    const finalAnswer = { type: "clarification" as const, message };
+    return logComposeDone(t0, {
+      finalAnswer,
+      clarificationRound: round + 1,
+      lastClarificationAtMs: Date.now(),
+      conversationTurns: [
+        { role: "assistant" as const, content: assistantSnippetFromFinalAnswer(finalAnswer) }
+      ]
+    });
+  }
+
   /** 里程碑 6.2：Guide 精参缺失（本回合已进过 guide_agent） */
   if (
     state.guideMissingParams?.length &&
@@ -167,8 +213,17 @@ export function composeAnswerNode(
   }
 
   if (ir?.primaryIntent === "data_query") {
-    const message = "数据查询未能完成或未返回结果，请换一种说法或稍后再试。";
-    const finalAnswer = { type: "fallback" as const, message };
+    const preview = planExecutionPreviewMessage(ir);
+    const finalAnswer = preview
+      ? {
+          type: "task_plan" as const,
+          message: preview,
+          taskPlan: ir.taskPlan
+        }
+      : {
+          type: "fallback" as const,
+          message: "数据查询未能完成或未返回结果，请换一种说法或稍后再试。"
+        };
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,

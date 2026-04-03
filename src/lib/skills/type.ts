@@ -1,5 +1,6 @@
 import type { EnvConfig } from "../../config/envConfig.js";
 import { SystemDomainEntry, SystemSegmentEntry } from "../../config/systemConfig.js";
+import { SkillGuideEntry } from "../guides/index.js";
 import type { DbClient } from "../infra/dbClient.js";
 import type { DbClientManager } from "../infra/dbClientManager.js";
 
@@ -21,6 +22,8 @@ export interface SkillContext {
   threadId?: string;
   taskId?: string;
 }
+
+export type skillType = "skill" | "guide" | "playbook";
 
 /**
  * 可披露元数据（L1）：用于 Registry 检索、get-skills-info、向量索引等。
@@ -50,13 +53,13 @@ export interface SkillMeta<TInput = unknown, TOutput = unknown> {
    */
   examples?: string[];
   /** 第一层：顶层域，见 {@link SkillDomain} */
-  domain?: SystemDomainEntry;
+  domainId?: string;
   /**
-   * 第二层：域内业务分段（可选）。与 `domain` 组合使用，如：
-   * `domain: "data_query"` + `segment: "member"`。
-   * 通用技能（`domain: "core"`）通常无需填写。
+   * 第二层：域内业务分段（可选）。与 `domainId` 组合使用，如：
+   * `domainId: "data_query"` + `segmentId: "member"`。
+   * 通用技能（`domainId: "core"`）通常无需填写。
    */
-  segment?: SystemSegmentEntry;
+  segmentId?: string;
   /**
    * 入参结构描述（如 JSON Schema 子集），供工具调用前校验或生成表单；可选。
    * 与泛型 `TInput` 语义对应；运行时仍以 TS 类型与 `run` 为准。
@@ -67,6 +70,10 @@ export interface SkillMeta<TInput = unknown, TOutput = unknown> {
    * 与泛型 `TOutput` 语义对应。多数技能可先不填，由调用方按实际 `run` 返回值处理。
    */
   outputSchema?: Record<string, unknown>;
+
+  kind: skillType;
+
+  skill?: SkillGuideEntry | unknown;
 }
 
 /**

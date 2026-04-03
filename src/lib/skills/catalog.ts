@@ -1,45 +1,81 @@
-import type { AnySkillMeta, SkillDomain, SkillSegment } from "./type.js";
+import type { SkillGuideEntry } from "../guides/types.js";
+import { getGuide, listGuides } from "../guides/guideRegistry.js";
+import { getDomainEntry, getSystemConfig, getSegmentEntry } from "../../config/systemConfig.js";
+import type { AnySkillMeta, skillType } from "./type.js";
 
 /**
- * 轻量技能目录：
+ * 轻量技能目录（可执行技能）：
+ * 当前包含 core skills,guides , playbooks
  * - 先用于 tool 查询（按 domain+segment / 按 id）。
  * - 后续可替换为动态发现与注册中心。
  */
-const SKILL_CATALOG: AnySkillMeta[] = [
-  {
-    id: "sql-query",
-    name: "SQL 查询",
-    description: "执行参数化 SQL 查询并返回行集。",
-    domain: "core",
-    segment: "other",
-    capabilities: ["sql", "database", "query"],
-    exampleQueries: ["查最近订单", "查询会员积分明细"]
-  }
-];
+function buildSkillCatalog(): AnySkillMeta[] {
+  const guides = listGuides();
+  //const playbooks = listPlaybooks();
+
+  const skills: AnySkillMeta[] = [];
+  guides.forEach(g => {
+    skills.push(generateSkillByGuide(g));
+  });
+  return [...skills];
+}
+
+function generateSkillByGuide(guide: SkillGuideEntry): AnySkillMeta {
+  const capabilities = guide.capabilities?.map(c => c.description) ?? [];
+  return {
+    id: guide.id,
+    name: guide.title,
+    description: guide.description ?? "",
+    domainId: guide.domain,
+    segmentId: guide.segment,
+    kind: "guide" as const,
+    capabilities: capabilities,
+    skill: guide,
+  } as AnySkillMeta;
+}
+
+const SKILL_CATALOG: AnySkillMeta[] = buildSkillCatalog();
 
 export interface SkillBriefInfo {
   id: string;
   name: string;
   description: string;
-  domain?: SkillDomain;
-  segment?: SkillSegment;
+  /** 对齐系统配置中的域 id，如 data_query/core/member */
+  domainId?: string;
+  /** 对齐系统配置中的分段 id，如 member/ecommerce/other */
+  segmentId?: string;
+  /** 区分可执行技能 vs Guide/Playbook */
+  kind: skillType;
+
+  capabilities?: string[];
 }
 
 export function listSkillsByDomainSegment(
-  domain: SkillDomain | string,
-  segment: SkillSegment | string
+  domainId: string,
+  segmentId: string
 ): SkillBriefInfo[] {
-  return SKILL_CATALOG.filter(
-    (s) => (s.domain ?? "") === domain && (s.segment ?? "") === segment
+  const skills = SKILL_CATALOG.filter(
+    (s) => (s.domainId ?? "") === domainId && (s.segmentId ?? "") === segmentId
   ).map((s) => ({
     id: s.id,
     name: s.name,
     description: s.description,
-    domain: s.domain,
-    segment: s.segment
+    domainId: s.domainId,
+    segmentId: s.segmentId,
+    kind: s.kind,
+    capabilities: s.capabilities,
   }));
+
+  return [...skills];
 }
 
-export function getSkillDetailById(skillId: string): AnySkillMeta | undefined {
-  return SKILL_CATALOG.find((s) => s.id === skillId);
+export type SkillOrGuideDetail =  AnySkillMeta | SkillGuideEntry | unknown;
+
+export function getSkillDetailById(skillId: string): SkillOrGuideDetail | undefined {
+  const skill = SKILL_CATALOG.find((s) => s.id === skillId);
+  if (skill) {
+    return skill;
+  }
+  
+  return undefined;
 }

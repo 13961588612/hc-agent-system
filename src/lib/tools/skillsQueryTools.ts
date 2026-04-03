@@ -1,14 +1,13 @@
 import z from "zod";
 import { getSkillDetailById, listSkillsByDomainSegment } from "../skills/catalog.js";
-import type { SkillDomain, SkillSegment } from "../skills/type.js";
 
 const listSkillsInputSchema = z.object({
-  domain: z.string().describe("技能顶层域，如 core/data_query"),
-  segment: z.string().describe("业务分段，如 member/ecommerce/other")
+  domainId: z.string().describe("技能顶层域，如 data_analysis/data_query/common"),
+  segmentId: z.string().describe("业务分段，如 member/ecommerce/finance/other")
 });
 
 const getSkillDetailInputSchema = z.object({
-  skillId: z.string().describe("技能 id，如 sql-query")
+  skillId: z.string().describe("技能 id，如 guide-member-profile ")
 });
 
 export const listSkillsByDomainSegmentTool = {
@@ -18,13 +17,10 @@ export const listSkillsByDomainSegmentTool = {
 };
 
 export async function runListSkillsByDomainSegmentTool(
-  kwargs: Record<string, unknown>
+  domainId: string,
+  segmentId: string
 ): Promise<string> {
-  const parsed = listSkillsInputSchema.parse(kwargs);
-  const skills = listSkillsByDomainSegment(
-    parsed.domain as SkillDomain,
-    parsed.segment as SkillSegment
-  );
+  const skills = listSkillsByDomainSegment(domainId, segmentId);
   return JSON.stringify({ ok: true, count: skills.length, skills }, null, 2);
 }
 
@@ -35,12 +31,11 @@ export const getSkillDetailByIdTool = {
 };
 
 export async function runGetSkillDetailByIdTool(
-  kwargs: Record<string, unknown>
+  skillId: string
 ): Promise<string> {
-  const parsed = getSkillDetailInputSchema.parse(kwargs);
-  const detail = getSkillDetailById(parsed.skillId);
+  const detail = getSkillDetailById(skillId);
   if (!detail) {
-    return JSON.stringify({ ok: false, error: `skill 不存在: ${parsed.skillId}` });
+    return JSON.stringify({ ok: false, error: `skill 不存在: ${skillId}` });
   }
   return JSON.stringify({ ok: true, skill: detail }, null, 2);
 }
