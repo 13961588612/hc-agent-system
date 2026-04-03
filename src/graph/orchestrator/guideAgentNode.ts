@@ -14,6 +14,7 @@ import {
 } from "../../lib/guides/sqlTemplateBind.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
+import { getBestDataQueryIntent } from "./intentSelectors.js";
 
 function normalizeStringList(v: unknown, max: number): string[] {
   if (Array.isArray(v)) {
@@ -119,8 +120,9 @@ function resolveGuideMatch(
   state: OrchestratorState
 ): { guide: SkillGuideEntry; capability: GuideCapabilityMeta } | undefined {
   const ir = state.intentResult;
-  if (!ir) return undefined;
-  const baseSlots = (ir.resolvedSlots ?? {}) as Record<string, unknown>;
+  const dq = getBestDataQueryIntent(ir);
+  if (!ir || !dq) return undefined;
+  const baseSlots = (dq.resolvedSlots ?? {}) as Record<string, unknown>;
   const slots: Record<string, unknown> = {
     ...(state.guideResolvedParams ?? {}),
     ...baseSlots
@@ -129,7 +131,7 @@ function resolveGuideMatch(
   const phone = extractPhoneFromText(state.input.userInput);
   if (card && !slots.member_card) slots.member_card = card;
   if (phone && !slots.phone) slots.phone = phone;
-  const key = ir.targetIntent?.trim() ?? "";
+  const key = dq.targetIntent?.trim() ?? "";
   if (key) {
     const hit = findGuideCapabilityByKey(key);
     if (hit?.capability) return { guide: hit.guide, capability: hit.capability };
@@ -140,7 +142,9 @@ function resolveGuideMatch(
   }
 
   const guides = listGuides().filter(
-    (g) => g.domain === "data_query" && (!ir.dataQueryDomain || g.segment === ir.dataQueryDomain || ir.dataQueryDomain === "other")
+    (g) =>
+      g.domain === "data_query" &&
+      (!dq.dataQueryDomain || g.segment === dq.dataQueryDomain || dq.dataQueryDomain === "other")
   );
   for (const g of guides) {
     const cap = pickBestCapability(g, state.input.userInput, slots);
@@ -160,11 +164,12 @@ export function guideAgentNode(
 ): Partial<OrchestratorState> {
   const t0 = Date.now();
   const ir = state.intentResult;
+  const dq = getBestDataQueryIntent(ir);
   if (
     !ir ||
-    ir.primaryIntent !== "data_query" ||
+    !dq ||
     ir.needsClarification ||
-    (ir.missingSlots?.length ?? 0) > 0
+    (dq.missingSlots?.length ?? 0) > 0
   ) {
     log(
       "[Orchestrator]",
@@ -186,7 +191,7 @@ export function guideAgentNode(
     log(
       "[Orchestrator]",
       "node guide_agent 无匹配 Guide",
-      `targetIntent=${ir.targetIntent ?? ""}`,
+      `targetIntent=${dq?.targetIntent ?? ""}`,
       t0
     );
     return {
@@ -202,7 +207,7 @@ export function guideAgentNode(
   const paramsBlock = effectiveParamsBlock(guide, capability);
   const slots: Record<string, unknown> = {
     ...(state.guideResolvedParams ?? {}),
-    ...((ir.resolvedSlots ?? {}) as Record<string, unknown>)
+    ...((dq.resolvedSlots ?? {}) as Record<string, unknown>)
   };
   const card = extractCardNoFromText(state.input.userInput);
   const phone = extractPhoneFromText(state.input.userInput);

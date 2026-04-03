@@ -4,6 +4,7 @@ import { writeArtifactInput } from "../../lib/artifacts/fsArtifacts.js";
 import type { DataQueryInput, SubTaskEnvelope, SubTaskResult } from "../../contracts/types.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
+import { getBestDataQueryIntent } from "./intentSelectors.js";
 
 export async function executeDataQueryNode(
   state: OrchestratorState,
@@ -11,16 +12,17 @@ export async function executeDataQueryNode(
 ): Promise<Partial<OrchestratorState>> {
   const t0 = Date.now();
   const ir = state.intentResult;
+  const dq = getBestDataQueryIntent(ir);
   if (
     !ir ||
     ir.needsClarification ||
-    ir.primaryIntent !== "data_query" ||
-    (ir.missingSlots?.length ?? 0) > 0
+    !dq ||
+    (dq.missingSlots?.length ?? 0) > 0
   ) {
     log(
       "[Orchestrator]",
       "node execute_data_query 跳过（守卫）",
-      `reason=${!ir ? "no_intentResult" : ir.needsClarification ? "needs_clarification" : ir.missingSlots?.length ? "missing_slots" : "not_data_query"}`,
+      `reason=${!ir ? "no_intentResult" : ir.needsClarification ? "needs_clarification" : dq?.missingSlots?.length ? "missing_slots" : "not_data_query"}`,
       t0
     );
     return {};
@@ -29,7 +31,7 @@ export async function executeDataQueryNode(
   log(
     "[Orchestrator]",
     "node execute_data_query 开始",
-    `hasSqlQueries=${Boolean(state.input.sqlQueries?.length)} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} targetIntent=${ir.targetIntent ?? ""} dataQueryDomain=${ir.dataQueryDomain ?? ""}`
+    `hasSqlQueries=${Boolean(state.input.sqlQueries?.length)} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} targetIntent=${dq.targetIntent ?? ""} dataQueryDomain=${dq.dataQueryDomain ?? ""}`
   );
 
   const taskId = nanoid();
@@ -51,12 +53,12 @@ export async function executeDataQueryNode(
       } else if (state.input.sqlQuery?.sql?.trim()) {
         base.sqlQuery = state.input.sqlQuery;
       }
-      const slots = ir.resolvedSlots;
+      const slots = dq.resolvedSlots;
       if (slots && Object.keys(slots).length > 0) {
         base.resolvedSlots = slots;
       }
-      if (ir.targetIntent?.trim()) base.targetIntent = ir.targetIntent.trim();
-      if (ir.dataQueryDomain) base.dataQueryDomain = ir.dataQueryDomain;
+      if (dq.targetIntent?.trim()) base.targetIntent = dq.targetIntent.trim();
+      if (dq.dataQueryDomain) base.dataQueryDomain = dq.dataQueryDomain;
       return base;
     })(),
     expectedOutputSchema: { name: "DataQueryResult", version: "1.0" }

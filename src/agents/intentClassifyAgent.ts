@@ -10,30 +10,37 @@ import { getIntentLlmTimeoutMs } from "../config/intentPolicy.js";
 import { log } from "../lib/log/log.js";
 import { getModel } from "../model/index.js";
 
-const INTENT_JSON_INSTRUCTION_BASE = `你是客服场景的意图分类器。根据用户最新一句（可结合简短对话上文）输出**仅一段 JSON 对象**，不要 markdown、不要解释。
-字段要求：
-- primaryIntent: "data_query" | "chitchat" | "unknown"
-  - data_query：用户要查业务数据（订单、会员、积分、库存等）
-  - chitchat：寒暄、感谢、与数据无关的闲聊
-  - unknown：无法判断或超出当前助手能力
-- needsClarification: boolean — 用户想查数但缺少关键条件（如未说明查谁、查哪段时间）时为 true
-- clarificationQuestion: string — 仅当 needsClarification 为 true 时填写一句中文追问，否则省略或空字符串
-- replySuggestion: string — 当 primaryIntent 为 chitchat 或 unknown 且不需要澄清时，给用户的简短友好中文回复（一两句）；data_query 且不需要澄清时可省略
-- resolvedSlots: 对象 — 当 primaryIntent 为 data_query 时，填入已解析槽位，键名用英文 snake_case，例如 user_id、phone、order_id、time_range；未知则 {}
-- dataQueryDomain: "member" | "ecommerce" | "other" | 省略 — 仅在 data_query 时填写：会员/积分/等级相关为 member；订单/物流为 ecommerce；否则 other
-- targetIntent: string | 省略 — 仅在 data_query 时填写，优先使用「可用能力列表」中的 capability id
-- missingSlots: string[] | 省略 — 仅在 data_query 且仍缺**执行查询必填**槽位时列出槽位名（如 ["user_id"]）；槽位已齐则 [] 或省略
-- confidence: 0 到 1 之间的小数，可选
-- taskPlan: object | 省略 — 通用拆分与编排对象（可选）。结构建议：
-  - domainSegmentRanking: [{ domain, segment, score?, reason? }]（先按 domain+segment 给候选排序）
+const INTENT_JSON_INSTRUCTION_BASE = `你是客服场景的多意图识别与任务拆解器。根据用户最新一句（可结合简短对话上文）输出**仅一段 JSON 对象**，不要 markdown、不要解释。
+字段要求（必须遵循）：
+- intents: 数组，至少 1 项。每项结构：
+  - intent: "data_query" | "data_analysis" | "knowledge_qa" | "chitchat" | "unknown"
+  - goal: string（该子意图要完成的目标）
+  - confidence: 0~1（可选）
+  - executable: boolean（可选）
+  - needsClarification: boolean（可选）
+  - clarificationQuestion: string（该子意图缺参时的追问，可选）
+  - data_query 子意图可选字段：
+    - resolvedSlots: 对象，键名建议 snake_case
+    - dataQueryDomain: "member" | "ecommerce" | "other"
+    - targetIntent: string（优先用可用能力列表 id）
+    - missingSlots: string[]
+  - 非问数子意图可给 replySuggestion（可选）
+- dominantIntent: 同上 intent 枚举之一，表示本轮主导意图（用于路由优先级）
+- needsClarification: boolean（全局是否需要先澄清）
+- clarificationQuestion: string（全局追问句；若 needsClarification=true 必填）
+- replySuggestion: string（当主要是 chitchat/unknown 时可填）
+- confidence: 0~1（全局，可选）
+- taskPlan: object（可选）：
+  - domainSegmentRanking: [{ domain, segment, score?, reason? }]
   - subTasks: [{ taskId, goal, selectedEntry?, executable, requiredParams?, providedParams?, missingParams?, plan?, expectedOutput? }]
-  - missingParamsSummary: string[]（全局缺参汇总）
+  - missingParamsSummary: string[]
   - nextAction: "execute" | "clarify"
   - finalSummary: string
 
 规则：
-1. 若用户明显在问数据但信息不够，必须 needsClarification=true 并给出 clarificationQuestion；可同时列出 missingSlots。
-2. data_query 且已能执行时：必须给出 dataQueryDomain、targetIntent，并在 resolvedSlots 中填入已提到的实体（如用户说的会员号、手机号可放在 phone 或 user_id）。`;
+1. 一个问题可同时输出多个意图；不要强制压成单意图。
+2. 只要任一关键子任务缺参数且无法执行，needsClarification=true，并给全局 clarificationQuestion。
+3. 若存在 data_query 且可执行，至少一条 data_query 子意图必须给 dataQueryDomain、targetIntent、resolvedSlots。`;
 
 function intentRulePromptLine(r: IntentRuleEntry): string {
   const slots = (r.requiredSlots ?? []).join(",");
@@ -185,12 +192,22 @@ function keywordFallbackIntent(userInput: string): IntentResult {
           ? `请补充以下信息以便查询：${missingSlots.join("、")}`
           : undefined;
     return {
-      primaryIntent: "data_query",
+      intents: [
+        {
+          intent: "data_query",
+          goal: "执行数据查询",
+          confidence: 0.5,
+          executable: !needsClarification,
+          needsClarification,
+          ...(clarificationQuestion ? { clarificationQuestion } : {}),
+          resolvedSlots,
+          dataQueryDomain: rule?.domain ?? "other",
+          targetIntent: rule?.targetIntent,
+          ...(missingSlots.length ? { missingSlots } : {})
+        }
+      ],
+      dominantIntent: "data_query",
       needsClarification,
-      resolvedSlots,
-      dataQueryDomain: rule?.domain ?? "other",
-      targetIntent: rule?.targetIntent,
-      ...(missingSlots.length ? { missingSlots } : {}),
       ...(clarificationQuestion ? { clarificationQuestion } : {}),
       taskPlan: {
         domainSegmentRanking: [
@@ -225,13 +242,21 @@ function keywordFallbackIntent(userInput: string): IntentResult {
           : "参数满足，可执行数据查询。"
       },
       confidence: 0.5,
-    };
+    } satisfies IntentResult;
   }
   return {
-    primaryIntent: "unknown",
+    intents: [
+      {
+        intent: "unknown",
+        goal: "识别用户意图并请求澄清",
+        confidence: 0.4,
+        executable: false,
+        replySuggestion: "如需查询订单或会员积分等数据，请直接说明您的需求。"
+      }
+    ],
+    dominantIntent: "unknown",
     needsClarification: false,
     replySuggestion: "如需查询订单或会员积分等数据，请直接说明您的需求。",
-    resolvedSlots: {},
     taskPlan: {
       domainSegmentRanking: [],
       subTasks: [],
@@ -240,11 +265,11 @@ function keywordFallbackIntent(userInput: string): IntentResult {
       finalSummary: "未识别为可执行数据查询，请先澄清需求。"
     },
     confidence: 0.4
-  };
+  } satisfies IntentResult;
 }
 
 function mapHighLevelDomain(intent: IntentResult): "data_query" | "other" {
-  return intent.primaryIntent === "data_query" ? "data_query" : "other";
+  return intent.intents.some((x) => x.intent === "data_query") ? "data_query" : "other";
 }
 
 /**
@@ -303,12 +328,15 @@ export async function runIntentClassifyAgent(
       "结构化字段评估",
       safeJsonSnippet(
         {
-          primaryIntent: intent.primaryIntent,
-          dataQueryDomain: intent.dataQueryDomain,
-          targetIntent: intent.targetIntent,
+          dominantIntent: intent.dominantIntent,
+          intents: intent.intents.map((x) => ({
+            intent: x.intent,
+            executable: x.executable,
+            dataQueryDomain: x.dataQueryDomain,
+            targetIntent: x.targetIntent,
+            missingSlots: x.missingSlots ?? []
+          })),
           needsClarification: intent.needsClarification,
-          missingSlots: intent.missingSlots ?? [],
-          resolvedSlots: intent.resolvedSlots ?? {},
           confidence: intent.confidence
         },
         1200
@@ -317,7 +345,7 @@ export async function runIntentClassifyAgent(
     log(
       "[Intent]",
       "classify 成功（JSON 已校验）",
-      `primaryIntent=${intent.primaryIntent} needsClarification=${String(intent.needsClarification)} targetIntent=${intent.targetIntent ?? ""} dataQueryDomain=${intent.dataQueryDomain ?? ""} missingSlots=${(intent.missingSlots ?? []).join(",") || "none"}`,
+      `dominantIntent=${intent.dominantIntent} intents=${intent.intents.length} needsClarification=${String(intent.needsClarification)}`,
       tAll
     );
     return { intentResult: intent, highLevelDomain: mapHighLevelDomain(intent) };
@@ -330,7 +358,7 @@ export async function runIntentClassifyAgent(
       log(
         "[Intent]",
         "classify 失败 → 关键词兜底",
-        `primaryIntent=${intent.primaryIntent} err=${errMsg.slice(0, 120)}`,
+        `dominantIntent=${intent.dominantIntent} err=${errMsg.slice(0, 120)}`,
         tAll
       );
     }

@@ -1,6 +1,7 @@
 import { getMaxClarificationRounds } from "../../config/intentPolicy.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
+import { getBestDataQueryIntent, getBestIntentByType } from "./intentSelectors.js";
 
 /** 非澄清类回复：清空追问 streak */
 const clearedClarification = {
@@ -11,7 +12,7 @@ const clearedClarification = {
 function wantsClarification(ir: OrchestratorState["intentResult"]): boolean {
   if (!ir) return false;
   if (ir.needsClarification && ir.clarificationQuestion?.trim()) return true;
-  if (ir.missingSlots?.length) return true;
+  if ((getBestDataQueryIntent(ir)?.missingSlots?.length ?? 0) > 0) return true;
   if (ir.taskPlan?.nextAction === "clarify") return true;
   if (ir.taskPlan?.missingParamsSummary?.length) return true;
   return false;
@@ -85,10 +86,11 @@ export function composeAnswerNode(
   log(
     "[Orchestrator]",
     "node compose_answer 开始",
-    `primaryIntent=${state.intentResult?.primaryIntent ?? "none"} resultsIndexKeys=${riKeys} clarificationRound=${state.clarificationRound ?? 0}`
+    `dominantIntent=${state.intentResult?.dominantIntent ?? "none"} intents=${state.intentResult?.intents?.length ?? 0} resultsIndexKeys=${riKeys} clarificationRound=${state.clarificationRound ?? 0}`
   );
 
   const ir = state.intentResult;
+  const dq = getBestDataQueryIntent(ir);
   const maxR = getMaxClarificationRounds();
   const round = state.clarificationRound ?? 0;
 
@@ -124,10 +126,10 @@ export function composeAnswerNode(
   }
 
   /** 第二期：缺槽位但未走 needsClarification 追问句时，仍合成澄清 */
-  if (ir?.missingSlots?.length) {
+  if (dq?.missingSlots?.length) {
     const message =
-      ir.clarificationQuestion?.trim() ||
-      `请补充以下信息以便查询：${ir.missingSlots.join("、")}`;
+      ir?.clarificationQuestion?.trim() ||
+      `请补充以下信息以便查询：${dq.missingSlots.join("、")}`;
     const finalAnswer = { type: "clarification" as const, message };
     return logComposeDone(t0, {
       finalAnswer,
@@ -156,7 +158,7 @@ export function composeAnswerNode(
   /** 里程碑 6.2：Guide 精参缺失（本回合已进过 guide_agent） */
   if (
     state.guideMissingParams?.length &&
-    ir?.primaryIntent === "data_query"
+    !!dq
   ) {
     const message = `请补充以下信息以便查询：${state.guideMissingParams.join("、")}`;
     const finalAnswer = { type: "clarification" as const, message };
@@ -171,10 +173,19 @@ export function composeAnswerNode(
   }
 
   if (state.resultsIndex && Object.keys(state.resultsIndex).length > 0) {
-    const finalAnswer = {
-      type: "data_query" as const,
-      resultsIndex: state.resultsIndex
-    };
+    const finalAnswer = dq
+      ? {
+          type: "data_query" as const,
+          resultsIndex: state.resultsIndex
+        }
+      : {
+          type: "task_plan" as const,
+          message: Object.values(state.resultsIndex)
+            .map((x) => x.summary)
+            .slice(0, 3)
+            .join("\n"),
+          resultsIndex: state.resultsIndex
+        };
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -184,7 +195,7 @@ export function composeAnswerNode(
     });
   }
 
-  if (ir?.primaryIntent === "chitchat") {
+  if (ir?.dominantIntent === "chitchat") {
     const message =
       ir.replySuggestion?.trim() ||
       "您好！如需查询订单或会员积分等数据，请告诉我具体需求。";
@@ -198,7 +209,7 @@ export function composeAnswerNode(
     });
   }
 
-  if (ir?.primaryIntent === "unknown") {
+  if (ir?.dominantIntent === "unknown") {
     const message =
       ir.replySuggestion?.trim() ||
       "当前仅支持简单的数据查询示例，请尝试询问订单或会员积分相关问题。";
@@ -212,13 +223,45 @@ export function composeAnswerNode(
     });
   }
 
-  if (ir?.primaryIntent === "data_query") {
+  if (ir?.dominantIntent === "data_analysis") {
+    const ia = getBestIntentByType(ir, "data_analysis");
+    const message =
+      ia?.goal?.trim()
+        ? `已识别为数据分析需求：${ia.goal.trim()}。当前版本将先完成查询准备，随后进入分析步骤。`
+        : "已识别为数据分析需求。请补充分析口径（指标、时间范围、分组维度）以继续。";
+    const finalAnswer = { type: "task_plan" as const, message, taskPlan: ir.taskPlan };
+    return logComposeDone(t0, {
+      ...clearedClarification,
+      finalAnswer,
+      conversationTurns: [
+        { role: "assistant" as const, content: assistantSnippetFromFinalAnswer(finalAnswer) }
+      ]
+    });
+  }
+
+  if (ir?.dominantIntent === "knowledge_qa") {
+    const ik = getBestIntentByType(ir, "knowledge_qa");
+    const message =
+      ik?.goal?.trim()
+        ? `已识别为知识问答需求：${ik.goal.trim()}。我会基于已披露能力整理答案。`
+        : "已识别为知识问答需求，请补充你希望查询的主题范围或对象。";
+    const finalAnswer = { type: "task_plan" as const, message, taskPlan: ir.taskPlan };
+    return logComposeDone(t0, {
+      ...clearedClarification,
+      finalAnswer,
+      conversationTurns: [
+        { role: "assistant" as const, content: assistantSnippetFromFinalAnswer(finalAnswer) }
+      ]
+    });
+  }
+
+  if (dq) {
     const preview = planExecutionPreviewMessage(ir);
     const finalAnswer = preview
       ? {
           type: "task_plan" as const,
           message: preview,
-          taskPlan: ir.taskPlan
+          taskPlan: ir?.taskPlan
         }
       : {
           type: "fallback" as const,

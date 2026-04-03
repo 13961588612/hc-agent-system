@@ -11,7 +11,7 @@ export async function intentAgentNode(
   log(
     "[Orchestrator]",
     "node intent_agent 结束",
-    `primaryIntent=${out.intentResult?.primaryIntent ?? "none"} highLevelDomain=${out.highLevelDomain ?? ""}`,
+    `dominantIntent=${out.intentResult?.dominantIntent ?? "none"} intents=${out.intentResult?.intents?.length ?? 0} highLevelDomain=${out.highLevelDomain ?? ""}`,
     t0
   );
   return out;

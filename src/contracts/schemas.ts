@@ -110,20 +110,42 @@ const MAX_CONVERSATION_TURNS = 10;
 
 /** LLM 结构化意图结果（与 `docs/intent-recognition-execution-plan.md` 里程碑 1 对齐） */
 export const IntentResultSchema = z.object({
-  /** 顶层意图：问数 / 闲聊 / 无法归类或超范围 */
-  primaryIntent: z.enum(["data_query", "chitchat", "unknown"]),
+  /** 多意图主结构：一个用户问题可同时命中多个意图 */
+  intents: z
+    .array(
+      z.object({
+        intent: z.enum([
+          "data_query",
+          "data_analysis",
+          "knowledge_qa",
+          "chitchat",
+          "unknown"
+        ]),
+        goal: z.string().optional(),
+        confidence: z.number().optional(),
+        executable: z.boolean().optional(),
+        needsClarification: z.boolean().optional(),
+        clarificationQuestion: z.string().optional(),
+        resolvedSlots: z.record(z.string(), z.unknown()).optional(),
+        dataQueryDomain: z.enum(["member", "ecommerce", "other"]).optional(),
+        targetIntent: z.string().optional(),
+        missingSlots: z.array(z.string()).optional(),
+        replySuggestion: z.string().optional()
+      })
+    )
+    .min(1),
+  /** 主导意图（路由优先级） */
+  dominantIntent: z.enum([
+    "data_query",
+    "data_analysis",
+    "knowledge_qa",
+    "chitchat",
+    "unknown"
+  ]),
   /** 为 true 时不应进入数据查询子图，应先追问用户 */
   needsClarification: z.boolean(),
   /** `needsClarification` 为 true 时展示给用户的一句追问 */
   clarificationQuestion: z.string().optional(),
-  /** 已解析槽位；第二期与 DataQuery 子图对齐（如 user_id、手机号） */
-  resolvedSlots: z.record(z.string(), z.unknown()).optional(),
-  /** 问数业务域，与 `targetIntent` 一并传入 DataQuery 子图做结构化路由 */
-  dataQueryDomain: z.enum(["member", "ecommerce", "other"]).optional(),
-  /** 子图内意图 id，如 member_points_recent、ecom_orders_recent */
-  targetIntent: z.string().optional(),
-  /** 仍缺的必填槽位名；非空时主图不执行 SQL，仅合成追问 */
-  missingSlots: z.array(z.string()).optional(),
   /** 模型对本次分类的置信度，0～1 */
   confidence: z.number().optional(),
   /** 闲聊、未知等场景下给用户的简短友好回复建议（非问数或无需澄清时） */

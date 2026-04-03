@@ -40,15 +40,19 @@ function parseCapabilityItem(raw: unknown): GuideCapabilityMeta | null {
   const c = raw as Record<string, unknown>;
   const id = typeof c.id === "string" ? c.id.trim() : "";
   if (!id) return null;
-  const queryTemplateId =
-    typeof c.queryTemplateId === "string" ? c.queryTemplateId.trim() : undefined;
+  const skillTemplateId = (() => {
+    if (typeof c.skillTemplateId === "string") return c.skillTemplateId.trim();
+    // 兼容历史字段名
+    if (typeof c.queryTemplateId === "string") return c.queryTemplateId.trim();
+    return undefined;
+  })();
   const description =
     typeof c.description === "string" ? c.description.trim() : undefined;
   const params = parseParamsBlock(c.params);
   const execution = parseExecutionBlock(c.execution);
   const out: GuideCapabilityMeta = { id };
   if (description) out.description = description;
-  if (queryTemplateId) out.queryTemplateId = queryTemplateId;
+  if (skillTemplateId) out.skillTemplateId = skillTemplateId;
   if (params) out.params = params;
   if (execution) out.execution = execution;
   return out;

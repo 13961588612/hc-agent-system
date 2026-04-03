@@ -9,6 +9,8 @@ import { nanoid } from "nanoid";
 import { intentAgentNode } from "./intentAgentNode.js";
 import { guideAgentNode } from "./guideAgentNode.js";
 import { executeDataQueryNode } from "./executeDataQueryNode.js";
+import { executeDataAnalysisNode } from "./executeDataAnalysisNode.js";
+import { executeKnowledgeQaNode } from "./executeKnowledgeQaNode.js";
 import { composeAnswerNode } from "./composeAnswerNode.js";
 import type { OrchestratorInput } from "../../contracts/types.js";
 import {
@@ -17,28 +19,43 @@ import {
 } from "../../contracts/schemas.js";
 import { getClarificationIdleMs } from "../../config/intentPolicy.js";
 import { log } from "../../lib/log/log.js";
+import { getBestDataQueryIntent } from "./intentSelectors.js";
 
 const builder = new StateGraph(OrchestratorStateSchema);
 
 builder.addNode("intent_agent", intentAgentNode);
 builder.addNode("guide_agent", guideAgentNode);
 builder.addNode("execute_data_query", executeDataQueryNode);
+builder.addNode("execute_data_analysis", executeDataAnalysisNode);
+builder.addNode("execute_knowledge_qa", executeKnowledgeQaNode);
 builder.addNode("compose_answer", composeAnswerNode);
 
 function routeAfterIntent(
   state: OrchestratorState
-): "guide_agent" | "compose_answer" {
+):
+  | "guide_agent"
+  | "execute_data_analysis"
+  | "execute_knowledge_qa"
+  | "compose_answer" {
   const ir = state.intentResult;
-  let next: "guide_agent" | "compose_answer";
+  const dq = getBestDataQueryIntent(ir);
+  const missingSlots = dq?.missingSlots ?? [];
+  let next:
+    | "guide_agent"
+    | "execute_data_analysis"
+    | "execute_knowledge_qa"
+    | "compose_answer";
   if (!ir) next = "compose_answer";
   else if (ir.needsClarification) next = "compose_answer";
-  else if (ir.missingSlots?.length) next = "compose_answer";
-  else if (ir.primaryIntent === "data_query") next = "guide_agent";
+  else if (ir.dominantIntent === "data_analysis") next = "execute_data_analysis";
+  else if (ir.dominantIntent === "knowledge_qa") next = "execute_knowledge_qa";
+  else if (missingSlots.length) next = "compose_answer";
+  else if (dq) next = "guide_agent";
   else next = "compose_answer";
   log(
     "[Orchestrator]",
     "route_after_intent",
-    `next=${next} primaryIntent=${ir?.primaryIntent ?? "none"} needsClarification=${String(ir?.needsClarification)} missingSlots=${(ir?.missingSlots ?? []).join(",") || "none"} targetIntent=${ir?.targetIntent ?? ""}`
+    `next=${next} dominantIntent=${ir?.dominantIntent ?? "none"} needsClarification=${String(ir?.needsClarification)} missingSlots=${missingSlots.join(",") || "none"} targetIntent=${dq?.targetIntent ?? ""}`
   );
   return next;
 }
@@ -58,6 +75,8 @@ builder.addEdge(START, "intent_agent" as any);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 builder.addConditionalEdges("intent_agent" as any, routeAfterIntent as any, {
   guide_agent: "guide_agent",
+  execute_data_analysis: "execute_data_analysis",
+  execute_knowledge_qa: "execute_knowledge_qa",
   compose_answer: "compose_answer"
 } as any);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,6 +86,10 @@ builder.addConditionalEdges("guide_agent" as any, routeAfterGuide as any, {
 } as any);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 builder.addEdge("execute_data_query" as any, "compose_answer" as any);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+builder.addEdge("execute_data_analysis" as any, "compose_answer" as any);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+builder.addEdge("execute_knowledge_qa" as any, "compose_answer" as any);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 builder.addEdge("compose_answer" as any, END);
 

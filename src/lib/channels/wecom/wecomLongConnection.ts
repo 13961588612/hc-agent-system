@@ -1,4 +1,9 @@
-import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
+import {
+  WSClient,
+  generateReqId,
+  type WsFrame,
+  type TextMessage
+} from "@wecom/aibot-node-sdk";
 import type { EnvConfig } from "../../../config/envConfig.js";
 import { log } from "../../log/log.js";
 import { runOrchestratorGraph } from "../../../graph/orchestrator/orchestratorGraph.js";
@@ -31,7 +36,7 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
     console.warn("[WeCom-WS] 断开:", reason);
   });
 
-  wsClient.on("message.text", async (frame: { body: any; }) => {
+  wsClient.on("message.text", async (frame: WsFrame<TextMessage>) => {
     const body = frame.body;
     const text = body?.text?.content?.trim() ?? "";
     const userId = body?.from?.userid ?? "unknown";
@@ -64,7 +69,12 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
         "replyStream 发送前",
         `replyLen=${replyText.length}`
       );
-      await wsClient.replyStream(frame, streamId, replyText.slice(0, 20480), true);
+      await wsClient.replyStream(
+        { headers: frame.headers },
+        streamId,
+        replyText.slice(0, 20480),
+        true
+      );
       log("[WeCom-WS]", "replyStream 完成", undefined, tReply);
       log("[WeCom-WS]", "本条消息处理完成", undefined, tAll);
     } catch (e) {
@@ -72,7 +82,7 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
       try {
         const streamId = generateReqId("stream");
         await wsClient.replyStream(
-          frame,
+          { headers: frame.headers },
           streamId,
           `处理失败：${e instanceof Error ? e.message : String(e)}`.slice(0, 20480),
           true
