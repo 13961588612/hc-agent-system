@@ -16,6 +16,9 @@ config/databases.local.yaml
 # 可选渠道本地配置
 config/channels.yaml
 
+# 可选系统域/分段本地配置
+config/system.yaml
+
 # Runtime artifacts (fsArtifacts 落盘)
 artifacts/
 

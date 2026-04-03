@@ -20,6 +20,21 @@
 | `MAX_CLARIFICATION_ROUNDS` | **可选**。默认 `3`；同一 `thread_id` 内 assistant 可发出的「追问」条数上限，超出则回复固定提示。 |
 | `CLARIFICATION_IDLE_MS` | **可选**。默认 `1800000`（30 分钟）；距上次追问超过该毫秒后用户再发消息，重置追问计数。 |
 | `INTENT_LLM_TIMEOUT_MS` | **可选**。默认 `45000`；意图分类 LLM 单次调用超时（毫秒），超时走关键词兜底。 |
+| `SYSTEM_CONFIG` | **可选**。`system.yaml` 的绝对或相对路径；未设置时默认 `<cwd>/config/system.yaml`。文件不存在时使用代码内置默认（与 `system.example.yaml` 对齐）。 |
+
+## 系统域与分段（`system.yaml`）
+
+用于**集中声明**系统中的 **domain**（域）与 **segment**（分段），并通过 **`facets`** 标记每条目录属于哪些**分类维度**（可多选）：
+
+| facet | 用途 |
+|-------|------|
+| `business` | 意图识别、任务划分、业务向路由 |
+| `skill` | Skills 渐进式披露、按 domain+segment 检索与过滤 |
+| `other` | 预留（如运维/安全标签），可不参与前两者 |
+
+- 模板：[`system.example.yaml`](system.example.yaml) → 复制为 `config/system.yaml`（本地覆盖，已忽略提交）。
+- 加载：`src/config/systemConfig.ts`（`loadSystemConfigFromFile`、`getSystemConfig`、`listDomainIdsByFacet` / `listSegmentIdsByFacet`）。
+- 启动：`src/bootstrap/initCore.ts` 在数据库初始化之前加载并打日志。
 
 ## 渠道（企业微信等）
 
@@ -31,4 +46,5 @@
 
 - 加载与注册：`src/config/databasesConfig.ts`、`src/config/channelsConfig.ts`、`src/config/createDbClientManagerFromConfig.ts`
 - 全局访问：`src/config/dbAppContext.ts`（`getDbClientManager`）
-- 公共初始化：`src/bootstrap/initCore.ts`（数据库 + Guides，CLI 与渠道共用）
+- 系统域配置：`src/config/systemConfig.ts`（`getSystemConfig`）
+- 公共初始化：`src/bootstrap/initCore.ts`（系统配置 + 数据库 + Guides，CLI 与渠道共用）

@@ -1,29 +1,7 @@
 import type { EnvConfig } from "../../config/envConfig.js";
+import { SystemDomainEntry, SystemSegmentEntry } from "../../config/systemConfig.js";
 import type { DbClient } from "../infra/dbClient.js";
 import type { DbClientManager } from "../infra/dbClientManager.js";
-
-/**
- * **第一层**（顶层域）：与编排 / 子 Agent 大类对齐，用于 Intent → `data_query` | `data_analysis` | …。
- * - `core`：通用底层能力（如 SQL、HTTP、invoke-skill），不绑定某一业务子域。
- *
- * **第二层**见 {@link SkillSegment}，用字段 `segment` 与 `domain` 组合（例：`data_query` + `member`），
- * 避免把「会员/电商」与「顶层域」混在同一枚举里。
- */
-export type SkillDomain =
-  | "data_query"
-  | "data_analysis"
-  | "smart_form"
-  | "core";
-
-/**
- * **第二层**（域内业务分段）：可选；仅在与业务线相关的技能上填写。
- * 与 DataQuery 的 `QueryDomain`（member / ecommerce / …）等概念对齐。
- *
- * 使用 `string & {}` 允许在已知字面量之外扩展自定义业务线 id，而不把类型退化成纯 `string`。
- */
-export type KnownSkillSegment = "member" | "ecommerce" | "finance" | "other";
-
-export type SkillSegment = KnownSkillSegment | (string & {});
 
 /**
  * 技能执行时可注入的上下文。
@@ -70,15 +48,15 @@ export interface SkillMeta<TInput = unknown, TOutput = unknown> {
    * **示例问法/指令**，用于向量检索、相似问召回或与用户问题做匹配；可多条。
    * 例：`["查我最近订单","会员积分明细"]`。
    */
-  exampleQueries?: string[];
+  examples?: string[];
   /** 第一层：顶层域，见 {@link SkillDomain} */
-  domain?: SkillDomain;
+  domain?: SystemDomainEntry;
   /**
    * 第二层：域内业务分段（可选）。与 `domain` 组合使用，如：
    * `domain: "data_query"` + `segment: "member"`。
    * 通用技能（`domain: "core"`）通常无需填写。
    */
-  segment?: SkillSegment;
+  segment?: SystemSegmentEntry;
   /**
    * 入参结构描述（如 JSON Schema 子集），供工具调用前校验或生成表单；可选。
    * 与泛型 `TInput` 语义对应；运行时仍以 TS 类型与 `run` 为准。

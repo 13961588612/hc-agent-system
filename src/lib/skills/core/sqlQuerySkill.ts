@@ -2,8 +2,8 @@ import {
   DummyDbClient,
   type DbClient,
   type SqlQueryResult
-} from "../infra/dbClient.js";
-import { dbClientManager } from "../infra/dbClientManager.js";
+} from "../../infra/dbClient.js";
+import { dbClientManager } from "../../infra/dbClientManager.js";
 import { z } from "zod";
 
 function resolveDbClient(dbClientKey: string): DbClient {
