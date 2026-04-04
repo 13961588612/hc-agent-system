@@ -1,0 +1,35 @@
+# 渠道配置示例（可选）
+# 复制为 channels.yaml 并按环境填写。当前运行时仍以进程环境变量为主（见各节说明），
+# 本文件主要作部署对照与文档；含密钥请勿提交 Git（见仓库根目录 .gitignore）。
+#
+# 企业微信支持两种接入（二选一，与后台「接收消息」或「智能机器人」能力对应）：
+# - http_callback：HTTP 回调 URL（需公网 HTTPS 反代）
+# - long_connection：智能机器人长连接（WebSocket，无需对外暴露 HTTP 回调）
+
+wecom:
+  enabled: true
+
+  # 接入方式：http_callback | long_connection
+  transport: long_connection
+  corpId: "${WECOM_CORP_ID}"
+  corpSecret: "${WECOM_CORP_SECRET}"
+
+  # ---------- HTTP 回调（transport: http_callback）----------
+  # 与后台「接收消息」URL 路径一致，对应环境变量 WECOM_CALLBACK_PATH
+  http:
+    enabled: true
+    callbackPath: "/wecom/callback"
+    plaintextMode: true
+    token: "${WECOM_TOKEN}"
+    agentId: "${WECOM_AGENT_ID}"
+    encodingAESKey: "${WECOM_ENCODING_AES_KEY}"    
+    webhookKey: "${WECOM_WEBHOOK_KEY}"
+    port: "${WECOM_HTTP_PORT}"
+
+  # ---------- 智能机器人长连接（transport: long_connection）----------
+  longConnection:
+    enabled: true
+    botId: "${WECOM_BOT_ID}"
+    botSecret: "${WECOM_BOT_SECRET}"
+    corpId: "${WECOM_CORP_ID}"
+    wsUrl: "wss://openws.work.weixin.qq.com"
