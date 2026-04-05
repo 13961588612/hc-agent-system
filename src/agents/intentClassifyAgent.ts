@@ -1,16 +1,20 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import type { OrchestratorState } from "../contracts/schemas.js";
 import {
-  IntentResultSchema,
-  type IntentResult,
-  type OrchestratorState
-} from "../contracts/schemas.js";
+  getIntentResultSchema,
+  type IntentResult
+} from "../contracts/intentSchemas.js";
+import { getSystemConfig, listQuerySegmentIds } from "../config/systemConfig.js";
 import { listIntentRules } from "../intent/intentRuleRegistry.js";
 import type { IntentRuleEntry } from "../intent/types.js";
 import { getIntentLlmTimeoutMs } from "../config/intentPolicy.js";
 import { log } from "../lib/log/log.js";
 import { getModel } from "../model/index.js";
 
-const INTENT_JSON_INSTRUCTION_BASE = `你是客服场景的多意图识别与任务拆解器。根据用户最新一句（可结合简短对话上文）输出**仅一段 JSON 对象**，不要 markdown、不要解释。
+function buildIntentJsonInstructionBase(): string {
+  const segmentIds = listQuerySegmentIds(getSystemConfig());
+  const domainLiteral = segmentIds.map((id) => `"${id}"`).join(" | ");
+  return `你是客服场景的多意图识别与任务拆解器。根据用户最新一句（可结合简短对话上文）输出**仅一段 JSON 对象**，不要 markdown、不要解释。
 字段要求（必须遵循）：
 - intents: 数组，至少 1 项。每项结构：
   - intent: "data_query" | "data_analysis" | "knowledge_qa" | "chitchat" | "unknown"
@@ -21,7 +25,7 @@ const INTENT_JSON_INSTRUCTION_BASE = `你是客服场景的多意图识别与任
   - clarificationQuestion: string（该子意图缺参时的追问，可选）
   - data_query 子意图可选字段：
     - resolvedSlots: 对象，键名建议 snake_case
-    - dataQueryDomain: "member" | "ecommerce" | "other"
+    - dataQueryDomain: ${domainLiteral}（来自当前系统配置的 business 等业务分段 id，须完全一致）
     - targetIntent: string（优先用可用能力列表 id）
     - missingSlots: string[]
   - 非问数子意图可给 replySuggestion（可选）
@@ -41,6 +45,7 @@ const INTENT_JSON_INSTRUCTION_BASE = `你是客服场景的多意图识别与任
 1. 一个问题可同时输出多个意图；不要强制压成单意图。
 2. 只要任一关键子任务缺参数且无法执行，needsClarification=true，并给全局 clarificationQuestion。
 3. 若存在 data_query 且可执行，至少一条 data_query 子意图必须给 dataQueryDomain、targetIntent、resolvedSlots。`;
+}
 
 function intentRulePromptLine(r: IntentRuleEntry): string {
   const slots = (r.requiredSlots ?? []).join(",");
@@ -54,7 +59,7 @@ function buildIntentInstructionFromRules(): string {
   const section = lines.length
     ? `\n\n可用能力列表（优先从下列 id 中选择 targetIntent）：\n${lines.join("\n")}`
     : `\n\n当前未发现能力列表；若是 data_query，可返回描述性 targetIntent。`;
-  return `${INTENT_JSON_INSTRUCTION_BASE}${section}`;
+  return `${buildIntentJsonInstructionBase()}${section}`;
 }
 
 function messageContentToString(content: unknown): string {
@@ -170,6 +175,15 @@ function missingByRule(
   return (rule.requiredSlots ?? []).filter((name) => !slotValue(slots, name));
 }
 
+/** 兜底/无规则时写入合法的 `dataQueryDomain`（须在 `listQuerySegmentIds` 内） */
+function coerceDataQueryDomain(ruleDomain: string | undefined): string {
+  const ids = listQuerySegmentIds(getSystemConfig());
+  const d = ruleDomain?.trim();
+  if (d && ids.includes(d)) return d;
+  if (ids.includes("other")) return "other";
+  return ids[0] ?? "other";
+}
+
 function keywordFallbackIntent(userInput: string): IntentResult {
   const text = userInput.toLowerCase();
   const isDataQuery =
@@ -201,7 +215,7 @@ function keywordFallbackIntent(userInput: string): IntentResult {
           needsClarification,
           ...(clarificationQuestion ? { clarificationQuestion } : {}),
           resolvedSlots,
-          dataQueryDomain: rule?.domain ?? "other",
+          dataQueryDomain: coerceDataQueryDomain(rule?.domain),
           targetIntent: rule?.targetIntent,
           ...(missingSlots.length ? { missingSlots } : {})
         }
@@ -212,8 +226,8 @@ function keywordFallbackIntent(userInput: string): IntentResult {
       taskPlan: {
         domainSegmentRanking: [
           {
-            domain: rule?.domain ?? "other",
-            segment: rule?.domain ?? "other",
+            domain: coerceDataQueryDomain(rule?.domain),
+            segment: coerceDataQueryDomain(rule?.domain),
             score: 0.5,
             reason: rule ? `匹配规则 ${rule.id}` : "关键词兜底命中"
           }
@@ -322,7 +336,7 @@ export async function runIntentClassifyAgent(
       safeJsonSnippet(jsonStr, 1000)
     );
     const parsed = JSON.parse(jsonStr) as unknown;
-    const intent = IntentResultSchema.parse(parsed);
+    const intent = getIntentResultSchema().parse(parsed);
     log(
       "[Intent]",
       "结构化字段评估",

@@ -20,7 +20,7 @@
 | `MAX_CLARIFICATION_ROUNDS` | **可选**。默认 `3`；同一 `thread_id` 内 assistant 可发出的「追问」条数上限，超出则回复固定提示。 |
 | `CLARIFICATION_IDLE_MS` | **可选**。默认 `1800000`（30 分钟）；距上次追问超过该毫秒后用户再发消息，重置追问计数。 |
 | `INTENT_LLM_TIMEOUT_MS` | **可选**。默认 `45000`；意图分类 LLM 单次调用超时（毫秒），超时走关键词兜底。 |
-| `SYSTEM_CONFIG` | **可选**。`system.yaml` 的绝对或相对路径；未设置时默认 `<cwd>/config/system.yaml`。文件不存在时使用代码内置默认（与 `system.example.yaml` 对齐）。 |
+| `SYSTEM_CONFIG` | **可选**。`system.yaml` 的绝对或相对路径；未设置时默认 `<cwd>/config/system.yaml`。文件不存在、解析失败或 domains/segments 均为空时，运行时使用**空壳配置**（无内置业务域/分段；请部署时提供有效 `system.yaml`）。 |
 
 ## 系统域与分段（`system.yaml`）
 

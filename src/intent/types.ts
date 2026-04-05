@@ -1,4 +1,5 @@
-export type IntentRuleDomain = "member" | "ecommerce" | "other";
+/** 意图规则中的问数域，与系统 `segments` 中某条 `id` 对齐 */
+export type IntentRuleDomain = string;
 
 export interface IntentRuleSlotExtractor {
   /** 目标槽位名（写入 `resolvedSlots` 的 key） */
@@ -14,7 +15,7 @@ export interface IntentRuleEntry {
   kind: "intent_rule";
   /** 人类可读标题，用于调试日志与运维定位 */
   title: string;
-  /** 问数域（member/ecommerce/other） */
+  /** 问数业务分段 id（与 `system.yaml` segments 对齐） */
   domain?: IntentRuleDomain;
   /** 命中后写入 `IntentResult.targetIntent` 的稳定能力 id */
   targetIntent: string;

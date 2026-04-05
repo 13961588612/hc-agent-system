@@ -4,6 +4,7 @@ import { DummyDbClient, type DbClient, type SqlQueryResult } from "../../lib/inf
 import { runSqlQuerySkill } from "../../lib/skills/sqlQuerySkill.js";
 import type { DataQueryInput, DataQueryResult, QueryDomain } from "../../contracts/types.js";
 import { DataQueryState, DataQueryStateSchema } from "../../contracts/schemas.js";
+import { getSystemConfig, listQuerySegmentIds } from "../../config/systemConfig.js";
 import type { Runnable } from "@langchain/core/runnables";
 import { log } from "../../lib/log/log.js";
 
@@ -11,6 +12,19 @@ import { log } from "../../lib/log/log.js";
 const MAX_SQL_QUERIES = 10;
 
 const MEMBER_DB_KEY = "member";
+
+/** LLM 注入 SQL 等无结构化域时的默认 `queryDomain`（取当前配置下首个问数 segment id） */
+function defaultQueryDomainTag(): QueryDomain {
+  const ids = listQuerySegmentIds(getSystemConfig());
+  return ids[0] ?? "other";
+}
+
+/** 关键词猜意图失败时的默认域：优先 `other`，否则首个 segment */
+function fallbackQueryDomainFromConfig(): QueryDomain {
+  const ids = listQuerySegmentIds(getSystemConfig());
+  if (ids.includes("other")) return "other";
+  return ids[0] ?? "other";
+}
 
 /**
  * 演示 SQL 用户参数：优先 `resolvedSlots.user_id` / `userId` / `phone`，否则 `input.userId`。
@@ -72,7 +86,7 @@ builder.addNode("domain_router", (state: DataQueryState) => {
   if (state.input.sqlQueries?.length) {
     return {
       ...state,
-      queryDomain: "member" as QueryDomain,
+      queryDomain: defaultQueryDomainTag(),
       queryIntent: "llm_sql_batch"
     };
   }
@@ -80,7 +94,7 @@ builder.addNode("domain_router", (state: DataQueryState) => {
   if (state.input.sqlQuery?.sql?.trim()) {
     return {
       ...state,
-      queryDomain: "member" as QueryDomain,
+      queryDomain: defaultQueryDomainTag(),
       queryIntent: "llm_sql"
     };
   }
@@ -95,14 +109,15 @@ builder.addNode("domain_router", (state: DataQueryState) => {
   }
 
   const text = state.input.userInput;
-  let queryDomain: QueryDomain = "other";
+  const segments = listQuerySegmentIds(getSystemConfig());
+  let queryDomain: QueryDomain = fallbackQueryDomainFromConfig();
   let queryIntent = "unknown";
 
   if (text.includes("会员") || text.includes("积分") || text.includes("等级")) {
-    queryDomain = "member";
+    queryDomain = segments.includes("member") ? "member" : queryDomain;
     queryIntent = "member_points_recent";
   } else if (text.includes("订单") || text.includes("物流") || text.includes("快递")) {
-    queryDomain = "ecommerce";
+    queryDomain = segments.includes("ecommerce") ? "ecommerce" : queryDomain;
     queryIntent = "ecom_orders_recent";
   }
 
@@ -184,7 +199,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
         ...state,
         executionPlan: { steps },
         result: {
-          domain: "member",
+          domain: state.queryDomain ?? defaultQueryDomainTag(),
           intent: "llm_sql_batch",
           dataType: "table" as const,
           meta: {
@@ -201,7 +216,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
       ...state,
       executionPlan: { steps },
       result: {
-        domain: "member",
+        domain: state.queryDomain ?? defaultQueryDomainTag(),
         intent: "llm_sql_batch",
         dataType: "tables" as const,
         meta: {
@@ -234,7 +249,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
       );
       log("[DataQuery]", "单条 LLM SQL 执行完成", `label=${label}`, tSql);
       const result: DataQueryResult = {
-        domain: "member",
+        domain: state.queryDomain ?? defaultQueryDomainTag(),
         intent: label,
         dataType: "table",
         meta: { dbClientKey: dbKey, label },
@@ -252,7 +267,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
       return {
         ...state,
         result: {
-          domain: "member",
+          domain: state.queryDomain ?? defaultQueryDomainTag(),
           intent: label,
           dataType: "table",
           meta: { error: msg, label, dbClientKey: dbKey },
@@ -265,11 +280,11 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
   let sql = "";
   let params: unknown[] = [];
 
-  if (state.queryDomain === "member" && state.queryIntent === "member_points_recent") {
+  if (state.queryIntent === "member_points_recent") {
     sql =
       "SELECT change, reason, created_at FROM member_points WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5";
     params = [effectiveDemoUserId(state.input)];
-  } else if (state.queryDomain === "ecommerce" && state.queryIntent === "ecom_orders_recent") {
+  } else if (state.queryIntent === "ecom_orders_recent") {
     sql =
       "SELECT order_id, status, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5";
     params = [effectiveDemoUserId(state.input)];

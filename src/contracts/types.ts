@@ -1,6 +1,6 @@
 import type { EnvConfig } from "../config/envConfig.js";
 
-export type { IntentResult } from "./schemas.js";
+export type { IntentResult } from "./intentSchemas.js";
 
 /** 主→子：统一任务下发协议 */
 export interface SubTaskEnvelope<TInputs = unknown> {
@@ -109,7 +109,8 @@ export interface OrchestratorInput {
 /** resultsIndex 的 key：子任务或步骤 id（与 `ResultsIndexKeySchema` 一致） */
 export type ResultsIndexKey = string;
 
-export type QueryDomain = "member" | "ecommerce" | "other";
+/** 问数业务分段 id，与 `config/system.yaml` 的 `segments` 一致（通常含 `business` facet） */
+export type QueryDomain = string;
 
 export interface DataQueryInput {
   userInput: string;

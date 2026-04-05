@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { getSegmentEntry, getSystemConfig } from "../config/systemConfig.js";
 import {
   clearIntentRules,
   getIntentRule,
@@ -51,10 +52,17 @@ function parseIntentRule(content: string, filePath: string): IntentRuleEntry | n
   const targetIntent =
     typeof o.targetIntent === "string" ? o.targetIntent.trim() : "";
   if (!id || !title || !targetIntent) return null;
-  const domain =
-    o.domain === "member" || o.domain === "ecommerce" || o.domain === "other"
-      ? (o.domain as IntentRuleDomain)
-      : undefined;
+  let domain: IntentRuleDomain | undefined;
+  if (typeof o.domain === "string") {
+    const d = o.domain.trim();
+    if (d) {
+      if (getSegmentEntry(getSystemConfig(), d)) domain = d;
+      else
+        console.warn(
+          `[IntentRules] ${filePath}: domain "${d}" 未在 system segments 中注册，已忽略`
+        );
+    }
+  }
   return {
     id,
     kind: "intent_rule",

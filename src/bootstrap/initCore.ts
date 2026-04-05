@@ -6,6 +6,7 @@ import {
   initSystemConfig,
   loadSystemConfigFromFile
 } from "../config/systemConfig.js";
+import { refreshIntentResultSchemaCache } from "../contracts/intentSchemas.js";
 import { discoverAndRegisterGuides } from "../lib/guides/scanGuides.js";
 import { discoverAndRegisterIntentRules } from "../intent/scanIntentRules.js";
 import { getDefaultDbClientManager } from "../lib/infra/dbClientManager.js";
@@ -23,10 +24,16 @@ export async function initCore(): Promise<InitCoreResult> {
 
   const systemLoaded = await loadSystemConfigFromFile();
   initSystemConfig(systemLoaded);
+  refreshIntentResultSchemaCache();
   const sys = getSystemConfig();
   console.log(
     `[System] 域/分段已加载: domains=${sys.domains.length} segments=${sys.segments.length} (version=${sys.version ?? "—"})`
   );
+  if (sys.domains.length === 0 && sys.segments.length === 0) {
+    console.warn(
+      "[System] 当前无有效 system 配置（请放置 config/system.yaml 或设置 SYSTEM_CONFIG 指向有效文件）"
+    );
+  }
 
   const dbConfig = await loadDatabasesConfig();
   const dbManager = dbConfig

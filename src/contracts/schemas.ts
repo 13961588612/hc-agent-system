@@ -4,6 +4,10 @@ import {
   StateSchema
 } from "@langchain/langgraph";
 import { z } from "zod/v3";
+import {
+  getIntentResultSchema,
+  type IntentResult
+} from "./intentSchemas.js";
 
 /** EnvConfig schema - accepts any object (openaiApiKey, dbUrl, etc.) */
 export const EnvConfigSchema = z.object({}).passthrough();
@@ -28,8 +32,8 @@ export const DataQueryInputSchema = z.object({
   resolvedSlots: z.record(z.string(), z.unknown()).optional(),
   /** 子图路由意图 id，与 `dataQueryDomain` 成对使用（来自 IntentResult.targetIntent） */
   targetIntent: z.string().optional(),
-  /** 子图路由域（来自 IntentResult.dataQueryDomain） */
-  dataQueryDomain: z.enum(["member", "ecommerce", "other"]).optional()
+  /** 子图路由域：segment id，与 `config/system.yaml` 的 segments（通常 business）一致 */
+  dataQueryDomain: z.string().optional()
 });
 
 /** 单表数据结构，用于 tables 类型 */
@@ -41,8 +45,8 @@ const DataTableSchema = z.object({
 
 /** DataQueryResult schema */
 export const DataQueryResultSchema = z.object({
-  /** 数据所属业务域。例：member=会员，ecommerce=电商 */
-  domain: z.enum(["member", "ecommerce", "other"]),
+  /** 数据所属业务分段 id，与问数 `queryDomain` / 系统 segments 对齐 */
+  domain: z.string(),
   /** 查询意图描述。例："query_recent_orders"、"get_user_profile" */
   intent: z.string(),
   /** 返回数据形态。table=单表，tables=多表，single=单条记录 */
@@ -92,7 +96,7 @@ export const DataQueryExecutionPlanSchema = z.object({
 /** DataQuery Graph state - 使用 StateSchema 定义 */
 export const DataQueryStateSchema = new StateSchema({
   input: DataQueryInputSchema,
-  queryDomain: z.enum(["member", "ecommerce", "other"]).optional(),
+  queryDomain: z.string().optional(),
   queryIntent: z.string().optional(),
   executionPlan: DataQueryExecutionPlanSchema.optional(),
   result: DataQueryResultSchema.optional()
@@ -107,95 +111,6 @@ export const ConversationTurnSchema = z.object({
 });
 
 const MAX_CONVERSATION_TURNS = 10;
-
-/** LLM 结构化意图结果（与 `docs/intent-recognition-execution-plan.md` 里程碑 1 对齐） */
-export const IntentResultSchema = z.object({
-  /** 多意图主结构：一个用户问题可同时命中多个意图 */
-  intents: z
-    .array(
-      z.object({
-        intent: z.enum([
-          "data_query",
-          "data_analysis",
-          "knowledge_qa",
-          "chitchat",
-          "unknown"
-        ]),
-        goal: z.string().optional(),
-        confidence: z.number().optional(),
-        executable: z.boolean().optional(),
-        needsClarification: z.boolean().optional(),
-        clarificationQuestion: z.string().optional(),
-        resolvedSlots: z.record(z.string(), z.unknown()).optional(),
-        dataQueryDomain: z.enum(["member", "ecommerce", "other"]).optional(),
-        targetIntent: z.string().optional(),
-        missingSlots: z.array(z.string()).optional(),
-        replySuggestion: z.string().optional()
-      })
-    )
-    .min(1),
-  /** 主导意图（路由优先级） */
-  dominantIntent: z.enum([
-    "data_query",
-    "data_analysis",
-    "knowledge_qa",
-    "chitchat",
-    "unknown"
-  ]),
-  /** 为 true 时不应进入数据查询子图，应先追问用户 */
-  needsClarification: z.boolean(),
-  /** `needsClarification` 为 true 时展示给用户的一句追问 */
-  clarificationQuestion: z.string().optional(),
-  /** 模型对本次分类的置信度，0～1 */
-  confidence: z.number().optional(),
-  /** 闲聊、未知等场景下给用户的简短友好回复建议（非问数或无需澄清时） */
-  replySuggestion: z.string().optional(),
-  /**
-   * 通用「拆分与编排」对象：
-   * - 承载 domain+segment 候选排序
-   * - 承载多子任务执行计划
-   * - 承载缺参与下一步动作（执行/澄清）
-   */
-  taskPlan: z
-    .object({
-      domainSegmentRanking: z
-        .array(
-          z.object({
-            domain: z.string(),
-            segment: z.string(),
-            score: z.number().optional(),
-            reason: z.string().optional()
-          })
-        )
-        .optional(),
-      subTasks: z
-        .array(
-          z.object({
-            taskId: z.string(),
-            goal: z.string(),
-            selectedEntry: z
-              .object({
-                kind: z.enum(["skill", "guide"]),
-                id: z.string()
-              })
-              .optional(),
-            executable: z.boolean(),
-            requiredParams: z.array(z.string()).optional(),
-            providedParams: z.record(z.string(), z.unknown()).optional(),
-            missingParams: z.array(z.string()).optional(),
-            plan: z.array(z.string()).optional(),
-            expectedOutput: z.enum(["table", "object", "summary"]).optional()
-          })
-        )
-        .optional(),
-      missingParamsSummary: z.array(z.string()).optional(),
-      nextAction: z.enum(["execute", "clarify"]).optional(),
-      finalSummary: z.string().optional()
-    })
-    .optional()
-});
-
-export type IntentResult = z.infer<typeof IntentResultSchema>;
 
 /** OrchestratorInput schema */
 export const OrchestratorInputSchema = z.object({
@@ -236,8 +151,8 @@ export const OrchestratorStateSchema = new StateSchema({
   input: OrchestratorInputSchema,
   /** 意图识别后的高层域：数据查询类 vs 其他 */
   highLevelDomain: z.enum(["data_query", "other"]).optional(),
-  /** 结构化意图（LLM + 兜底），与 `highLevelDomain` 在意图节点内一并写入 */
-  intentResult: IntentResultSchema.optional(),
+  /** 结构化意图（LLM + 兜底）；校验随 `system.yaml` segments，故用 lazy 在运行时解析 */
+  intentResult: z.lazy(() => getIntentResultSchema()).optional(),
   /** 会话轮次（append reducer，最多保留最近若干条） */
   // LangGraph `SerializableSchema` 与 `zod/v3` 的 TS 声明不完全一致，运行时仍按 Zod 校验
   conversationTurns:
@@ -294,7 +209,7 @@ export const OrchestratorStateSchema = new StateSchema({
  */
 export type DataQueryState = {
   input: z.infer<typeof DataQueryInputSchema>;
-  queryDomain?: "member" | "ecommerce" | "other";
+  queryDomain?: string;
   queryIntent?: string;
   executionPlan?: z.infer<typeof DataQueryExecutionPlanSchema>;
   result?: z.infer<typeof DataQueryResultSchema>;
