@@ -4,7 +4,11 @@ import { writeArtifactInput } from "../../lib/artifacts/fsArtifacts.js";
 import type { DataQueryInput, SubTaskEnvelope, SubTaskResult } from "../../contracts/types.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
-import { getBestDataQueryIntent } from "./intentSelectors.js";
+import {
+  getBestDataQueryIntent,
+  getPrimaryPlanningTask,
+  isPlanningReady
+} from "./intentSelectors.js";
 
 export async function executeDataQueryNode(
   state: OrchestratorState,
@@ -13,8 +17,10 @@ export async function executeDataQueryNode(
   const t0 = Date.now();
   const ir = state.intentResult;
   const dq = getBestDataQueryIntent(ir);
+  const pt = getPrimaryPlanningTask(ir, "data_query");
   if (
     !ir ||
+    !isPlanningReady(ir) ||
     ir.needsClarification ||
     !dq ||
     (dq.missingSlots?.length ?? 0) > 0
@@ -22,7 +28,7 @@ export async function executeDataQueryNode(
     log(
       "[Orchestrator]",
       "node execute_data_query 跳过（守卫）",
-      `reason=${!ir ? "no_intentResult" : ir.needsClarification ? "needs_clarification" : dq?.missingSlots?.length ? "missing_slots" : "not_data_query"}`,
+      `reason=${!ir ? "no_intentResult" : !isPlanningReady(ir) ? "plan_not_ready" : ir.needsClarification ? "needs_clarification" : dq?.missingSlots?.length ? "missing_slots" : "not_data_query"}`,
       t0
     );
     return {};
@@ -41,7 +47,7 @@ export async function executeDataQueryNode(
     taskId,
     threadId,
     agentType: "data_query",
-    goal: "执行数据查询并返回统一 DataQueryResult",
+    goal: pt?.goal?.trim() || "执行数据查询并返回统一 DataQueryResult",
     inputs: (() => {
       const base: DataQueryInput = {
         userInput: state.input.userInput,
@@ -53,12 +59,43 @@ export async function executeDataQueryNode(
       } else if (state.input.sqlQuery?.sql?.trim()) {
         base.sqlQuery = state.input.sqlQuery;
       }
-      const slots = dq.resolvedSlots;
-      if (slots && Object.keys(slots).length > 0) {
-        base.resolvedSlots = slots;
+      if (pt) {
+        base.planningTask = {
+          taskId: pt.taskId,
+          goal: pt.goal,
+          systemModuleId: pt.systemModuleId,
+          skillSteps: pt.skillSteps?.map((s) => ({
+            stepId: s.stepId,
+            skillsDomainId: s.skillsDomainId,
+            skillsSegmentId: s.skillsSegmentId,
+            disclosedSkillIds: s.disclosedSkillIds,
+            selectedCapability: s.selectedCapability
+              ? { kind: s.selectedCapability.kind, id: s.selectedCapability.id }
+              : undefined,
+            requiredParams: s.requiredParams,
+            providedParams: s.providedParams,
+            missingParams: s.missingParams,
+            executable: s.executable,
+            expectedOutput: s.expectedOutput
+          }))
+        };
       }
-      if (dq.targetIntent?.trim()) base.targetIntent = dq.targetIntent.trim();
+      const slots = dq.resolvedSlots;
+      const planSlots = pt?.resolvedSlots;
+      const mergedSlots = { ...(slots ?? {}), ...(planSlots ?? {}) };
+      if (slots && Object.keys(slots).length > 0) {
+        base.resolvedSlots = mergedSlots;
+      } else if (planSlots && Object.keys(planSlots).length > 0) {
+        base.resolvedSlots = planSlots;
+      }
+      const plannedEntry = pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability?.id;
+      if (plannedEntry?.trim()) base.targetIntent = plannedEntry.trim();
+      else if (dq.targetIntent?.trim()) base.targetIntent = dq.targetIntent.trim();
       if (dq.dataQueryDomain) base.dataQueryDomain = dq.dataQueryDomain;
+      const plannedSql = pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability;
+      if (plannedSql && !base.targetIntent) {
+        base.targetIntent = plannedSql.id;
+      }
       return base;
     })(),
     expectedOutputSchema: { name: "DataQueryResult", version: "1.0" }

@@ -3,11 +3,11 @@ import { readFileTool, runFileRead, runFileWrite, writeFileTool } from "./fileTo
 import { runSqlQueryTool, sqlQueryTool } from "./sqlQueryTool.js";
 import { SqlSkillInput } from "../skills/core/sqlQuerySkill.js";
 import {
-  getSkillDetailByIdTool,
+  invokeSkillTool,
   listSkillsByDomainSegmentTool,
-  runGetSkillDetailByIdTool,
+  runInvokeSkillTool,
   runListSkillsByDomainSegmentTool
-} from "./skillsQueryTools.js";
+} from "./skillsTools.js";
 
 type ToolKwargs = Record<string, unknown>;
 
@@ -21,15 +21,15 @@ export const TOOL_HANDLERS: Record<
   write_file: (kw) => runFileWrite(kw["path"] as string, kw["content"] as string),
   sql_query: (kw) => runSqlQueryTool(kw["sqlQueryInput"] as SqlSkillInput),
   list_skills_by_domain_segment: (kw) => runListSkillsByDomainSegmentTool(kw["domainId"] as string, kw["segmentId"] as string),
-  get_skill_detail_by_id: (kw) => runGetSkillDetailByIdTool(kw["skillId"] as string),
+  invoke_skill: (kw) => runInvokeSkillTool(kw["skillId"] as string),
 };
 
 /** 主智能体可用工具（含 task） */
 export const allTools: Record<string, unknown> = {
     bash: bashTool,
     read_file: readFileTool,
-    writeFile: writeFileTool,
+    write_file: writeFileTool,
     sql_query: sqlQueryTool,
     list_skills_by_domain_segment: listSkillsByDomainSegmentTool,
-    get_skill_detail_by_id: getSkillDetailByIdTool,
+    invoke_skill: invokeSkillTool,
 }

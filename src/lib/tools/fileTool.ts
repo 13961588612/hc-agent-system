@@ -31,7 +31,7 @@ export async function runFileWrite(filePath: string, content: string): Promise<s
 
 
 export const readFileTool = {
-  name: "readFile",
+  name: "read_file",
   description: "读取文件内容",
   schema: z.object({
     path: z.string().describe("要读取的文件路径"),
@@ -40,7 +40,7 @@ export const readFileTool = {
 };
 
 export const writeFileTool = {
-  name: "writeFile",
+  name: "write_file",
   description: "写入文件内容",
   schema: z.object({
     path: z.string().describe("要写入的文件路径"),

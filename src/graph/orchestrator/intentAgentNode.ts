@@ -1,6 +1,7 @@
 import { runIntentClassifyAgent } from "../../agents/intentClassifyAgent.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
+import { getDominantIntentFromList } from "./intentSelectors.js";
 
 export async function intentAgentNode(
   state: OrchestratorState
@@ -11,7 +12,7 @@ export async function intentAgentNode(
   log(
     "[Orchestrator]",
     "node intent_agent 结束",
-    `dominantIntent=${out.intentResult?.dominantIntent ?? "none"} intents=${out.intentResult?.intents?.length ?? 0} highLevelDomain=${out.highLevelDomain ?? ""}`,
+    `dominantIntent=${getDominantIntentFromList(out.intentResult)} intents=${out.intentResult?.intents?.length ?? 0} highLevelDomain=${out.highLevelDomain ?? ""}`,
     t0
   );
   return out;

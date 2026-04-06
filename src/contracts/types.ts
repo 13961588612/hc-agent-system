@@ -118,6 +118,24 @@ export interface DataQueryInput {
   env: EnvConfig;
   sqlQuery?: DataQuerySqlItem;
   sqlQueries?: DataQuerySqlItem[];
+  /** 意图规划阶段下发的当前 data_query 子任务（用于 skill 链路执行） */
+  planningTask?: {
+    taskId?: string;
+    goal?: string;
+    systemModuleId?: string;
+    skillSteps?: Array<{
+      stepId?: string;
+      skillsDomainId?: string;
+      skillsSegmentId?: string;
+      disclosedSkillIds?: string[];
+      selectedCapability?: { kind?: "skill" | "guide"; id?: string };
+      requiredParams?: string[];
+      providedParams?: Record<string, unknown>;
+      missingParams?: string[];
+      executable?: boolean;
+      expectedOutput?: "table" | "object" | "summary";
+    }>;
+  };
   /** 意图节点解析槽位，子图优先用于路由与演示 SQL 参数 */
   resolvedSlots?: Record<string, unknown>;
   /** 与 `dataQueryDomain` 成对，用于子图 domain_router（第二期） */

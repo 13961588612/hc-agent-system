@@ -56,7 +56,7 @@ function parseIntentRule(content: string, filePath: string): IntentRuleEntry | n
   if (typeof o.domain === "string") {
     const d = o.domain.trim();
     if (d) {
-      if (getSegmentEntry(getSystemConfig(), d)) domain = d;
+      if (getSegmentEntry(d, getSystemConfig())) domain = d;
       else
         console.warn(
           `[IntentRules] ${filePath}: domain "${d}" 未在 system segments 中注册，已忽略`

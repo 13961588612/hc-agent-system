@@ -1,50 +1,130 @@
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
+import { z } from "zod/v3";
 import type { OrchestratorState } from "../contracts/schemas.js";
 import {
   getIntentResultSchema,
   type IntentResult
 } from "../contracts/intentSchemas.js";
-import { getSystemConfig, listQuerySegmentIds } from "../config/systemConfig.js";
+import {
+  getSystemConfig,
+  listBusinessSegmentIds,
+  listSkillsDomains,
+  listSkillsSegments,
+  listSystemModuleDomains
+} from "../config/systemConfig.js";
 import { listIntentRules } from "../intent/intentRuleRegistry.js";
 import type { IntentRuleEntry } from "../intent/types.js";
 import { getIntentLlmTimeoutMs } from "../config/intentPolicy.js";
 import { log } from "../lib/log/log.js";
 import { getModel } from "../model/index.js";
+import {
+  invokeSkillTool,
+  listSkillsByDomainSegmentTool,
+  runInvokeSkillTool,
+  runListSkillsByDomainSegmentTool
+} from "../lib/tools/skillsTools.js";
+
+const IntentEnumSchema = z.enum([
+  "data_query",
+  "data_analysis",
+  "knowledge_qa",
+  "chitchat",
+  "unknown"
+]);
+
+const IntentLlmOutputSchema = z.object({
+  intents: z
+    .array(
+      z.object({
+        intent: IntentEnumSchema,
+        goal: z.string().nullable().default(null),
+        confidence: z.number().nullable().default(null),
+        executable: z.boolean().nullable().default(null),
+        needsClarification: z.boolean().nullable().default(null),
+        clarificationQuestion: z.string().nullable().default(null),
+        resolvedSlots: z.record(z.unknown()).nullable().default(null),
+        dataQueryDomain: z.string().nullable().default(null),
+        targetIntent: z.string().nullable().default(null),
+        missingSlots: z.array(z.string()).default([]),
+        replySuggestion: z.string().nullable().default(null)
+      })
+    )
+    .default([]),
+  planPhase: z.enum(["draft", "blocked", "ready"]).default("draft"),
+  replyLocale: z.enum(["zh", "en", "auto"]).default("auto"),
+  needsClarification: z.boolean().default(false),
+  clarificationQuestion: z.string().nullable().default(null),
+  confidence: z.number().nullable().default(null),
+  replySuggestion: z.string().nullable().default(null),
+  planningTasks: z
+    .array(
+      z.object({
+        taskId: z.string(),
+        systemModuleId: z.string(),
+        goal: z.string(),
+        resolvedSlots: z.record(z.unknown()).nullable().default(null),
+        missingSlots: z.array(z.string()).default([]),
+        clarificationQuestion: z.string().nullable().default(null),
+        executable: z.boolean().nullable().default(null),
+        skillSteps: z
+          .array(
+            z.object({
+              stepId: z.string(),
+              skillsDomainId: z.string(),
+              skillsSegmentId: z.string().nullable().default(null),
+              disclosedSkillIds: z.array(z.string()).default([]),
+              selectedCapability: z
+                .object({
+                  kind: z.enum(["skill", "guide"]),
+                  id: z.string()
+                })
+                .nullable()
+                .default(null),
+              requiredParams: z.array(z.string()).default([]),
+              providedParams: z.record(z.unknown()).nullable().default(null),
+              missingParams: z.array(z.string()).default([]),
+              executable: z.boolean().nullable().default(null),
+              expectedOutput: z.enum(["table", "object", "summary"]).nullable().default(null)
+            })
+          )
+          .default([])
+      })
+    )
+    .default([])
+});
 
 function buildIntentJsonInstructionBase(): string {
-  const segmentIds = listQuerySegmentIds(getSystemConfig());
-  const domainLiteral = segmentIds.map((id) => `"${id}"`).join(" | ");
-  return `你是客服场景的多意图识别与任务拆解器。根据用户最新一句（可结合简短对话上文）输出**仅一段 JSON 对象**，不要 markdown、不要解释。
-字段要求（必须遵循）：
-- intents: 数组，至少 1 项。每项结构：
-  - intent: "data_query" | "data_analysis" | "knowledge_qa" | "chitchat" | "unknown"
-  - goal: string（该子意图要完成的目标）
-  - confidence: 0~1（可选）
-  - executable: boolean（可选）
-  - needsClarification: boolean（可选）
-  - clarificationQuestion: string（该子意图缺参时的追问，可选）
-  - data_query 子意图可选字段：
-    - resolvedSlots: 对象，键名建议 snake_case
-    - dataQueryDomain: ${domainLiteral}（来自当前系统配置的 business 等业务分段 id，须完全一致）
-    - targetIntent: string（优先用可用能力列表 id）
-    - missingSlots: string[]
-  - 非问数子意图可给 replySuggestion（可选）
-- dominantIntent: 同上 intent 枚举之一，表示本轮主导意图（用于路由优先级）
-- needsClarification: boolean（全局是否需要先澄清）
-- clarificationQuestion: string（全局追问句；若 needsClarification=true 必填）
-- replySuggestion: string（当主要是 chitchat/unknown 时可填）
-- confidence: 0~1（全局，可选）
-- taskPlan: object（可选）：
-  - domainSegmentRanking: [{ domain, segment, score?, reason? }]
-  - subTasks: [{ taskId, goal, selectedEntry?, executable, requiredParams?, providedParams?, missingParams?, plan?, expectedOutput? }]
-  - missingParamsSummary: string[]
-  - nextAction: "execute" | "clarify"
-  - finalSummary: string
+  const cfg = getSystemConfig();
+  const segmentIds = listBusinessSegmentIds(cfg);
+  const domainLiteral = segmentIds.map((id) => `"${id}"`).join(", ");
+  const moduleIds = listSystemModuleDomains(cfg).map((d) => d.id);
+  const skillsDomainIds = listSkillsDomains(cfg).map((d) => d.id);
+  const skillsSegmentIds = listSkillsSegments(cfg).map((s) => s.id);
+  return `你是客服场景的多意图识别与任务拆解器。
+必须遵循 skill「intent-common」作为唯一规则来源。
 
-规则：
-1. 一个问题可同时输出多个意图；不要强制压成单意图。
-2. 只要任一关键子任务缺参数且无法执行，needsClarification=true，并给全局 clarificationQuestion。
-3. 若存在 data_query 且可执行，至少一条 data_query 子意图必须给 dataQueryDomain、targetIntent、resolvedSlots。`;
+输出要求（强约束）：
+1) 只输出一个 JSON 对象，不要 markdown/代码块/解释。
+2) JSON 必须能通过当前代码的 IntentResultSchema 校验。
+3) 必填核心字段至少包含：intents, planPhase, replyLocale, planningTasks, needsClarification。
+
+动态枚举约束（以当前系统配置为准）：
+- dataQueryDomain 仅可取：${domainLiteral || "other"}
+- planningTasks[].systemModuleId 优先取：${moduleIds.join(", ") || "data_query,data_analysis,knowledge_qa"}
+- skillSteps[].skillsDomainId 可取：${skillsDomainIds.join(", ") || "core,data_query"}
+- skillSteps[].skillsSegmentId 可取：${skillsSegmentIds.join(", ") || "member,ecommerce,other"}
+
+一致性约束（必须满足）：
+- 多意图允许并存，不要强制单意图。
+- 若存在关键缺参：needsClarification=true，planPhase="blocked"，并给 clarificationQuestion。
+- 若 data_query 可执行：至少一条 data_query 含 dataQueryDomain、targetIntent、resolvedSlots。
+- taskPlan.nextAction 与是否缺参一致（execute / clarify）。
+- 优先采用渐进式披露：先给 disclosedSkillIds，再收敛 selectedCapability.id。
+
+工具使用要求（非常重要）：
+- 先调用 list_skills_by_domain_segment（1~3组候选）做技能搜索，再调用 invoke_skill 查看候选详情。
+- 必须基于工具结果填写 disclosedSkillIds 与 selectedCapability.id，不要凭空编造技能 id。
+- 若工具结果不足以执行，返回 clarify 路径并说明缺失信息。`;
 }
 
 function intentRulePromptLine(r: IntentRuleEntry): string {
@@ -95,6 +175,209 @@ function safeJsonSnippet(input: unknown, maxLen = 1200): string {
   } catch {
     return String(input ?? "");
   }
+}
+
+function toEnumIntent(v: unknown): "data_query" | "data_analysis" | "knowledge_qa" | "chitchat" | "unknown" {
+  const s = String(v ?? "").trim();
+  if (s === "data_query" || s === "data_analysis" || s === "knowledge_qa" || s === "chitchat" || s === "unknown") {
+    return s;
+  }
+  if (s === "data-query" || s === "query" || s === "member_profile_query") return "data_query";
+  if (s === "qa" || s === "knowledge") return "knowledge_qa";
+  if (s === "chat" || s === "smalltalk") return "chitchat";
+  return "unknown";
+}
+
+function normalizePlanPhase(v: unknown): "draft" | "blocked" | "ready" {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (s === "ready" || s === "blocked" || s === "draft") return s;
+  if (s === "execute" || s === "executable") return "ready";
+  if (s === "clarify" || s === "need_clarify") return "blocked";
+  return "draft";
+}
+
+function normalizeReplyLocale(v: unknown): "zh" | "en" | "auto" {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (s === "zh" || s === "zh-cn" || s === "cn") return "zh";
+  if (s === "en" || s === "en-us") return "en";
+  return "auto";
+}
+
+function inferDominantIntentFromIntents(
+  intents: Array<{ intent: "data_query" | "data_analysis" | "knowledge_qa" | "chitchat" | "unknown"; confidence?: number }>
+): "data_query" | "data_analysis" | "knowledge_qa" | "chitchat" | "unknown" {
+  if (!intents.length) return "unknown";
+  return [...intents].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))[0]?.intent ?? "unknown";
+}
+
+function normalizeIntentLikePayload(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const obj = raw as Record<string, unknown>;
+  const intentsRaw = Array.isArray(obj.intents) ? obj.intents : [];
+  const intents = intentsRaw.map((it) => {
+    const x = (it ?? {}) as Record<string, unknown>;
+    const mappedIntent = toEnumIntent(x.intent ?? x.intentType);
+    const targetIntent = x.targetIntent ?? x.intentId;
+    return {
+      intent: mappedIntent,
+      ...(x.goal ? { goal: String(x.goal) } : {}),
+      ...(typeof x.confidence === "number" ? { confidence: x.confidence } : {}),
+      ...(typeof x.executable === "boolean" ? { executable: x.executable } : {}),
+      ...(typeof x.needsClarification === "boolean" ? { needsClarification: x.needsClarification } : {}),
+      ...(x.clarificationQuestion ? { clarificationQuestion: String(x.clarificationQuestion) } : {}),
+      ...(x.resolvedSlots && typeof x.resolvedSlots === "object" ? { resolvedSlots: x.resolvedSlots } : {}),
+      ...(x.dataQueryDomain ? { dataQueryDomain: String(x.dataQueryDomain) } : {}),
+      ...(targetIntent ? { targetIntent: String(targetIntent) } : {}),
+      ...(Array.isArray(x.missingSlots) ? { missingSlots: x.missingSlots } : {}),
+      ...(x.replySuggestion ? { replySuggestion: String(x.replySuggestion) } : {})
+    };
+  });
+  const planPhase = normalizePlanPhase(obj.planPhase);
+  const needsClarification =
+    typeof obj.needsClarification === "boolean"
+      ? obj.needsClarification
+      : planPhase === "blocked";
+  return {
+    ...obj,
+    intents,
+    planPhase,
+    replyLocale: normalizeReplyLocale(obj.replyLocale),
+    needsClarification
+  };
+}
+
+function normalizeStructuredOutputToIntentPayload(
+  data: z.infer<typeof IntentLlmOutputSchema>
+): unknown {
+  return {
+    intents: data.intents.map((x) => ({
+      intent: x.intent,
+      ...(x.goal ? { goal: x.goal } : {}),
+      ...(x.confidence !== null ? { confidence: x.confidence } : {}),
+      ...(x.executable !== null ? { executable: x.executable } : {}),
+      ...(x.needsClarification !== null ? { needsClarification: x.needsClarification } : {}),
+      ...(x.clarificationQuestion ? { clarificationQuestion: x.clarificationQuestion } : {}),
+      ...(x.resolvedSlots ? { resolvedSlots: x.resolvedSlots } : {}),
+      ...(x.dataQueryDomain ? { dataQueryDomain: x.dataQueryDomain } : {}),
+      ...(x.targetIntent ? { targetIntent: x.targetIntent } : {}),
+      ...(x.missingSlots.length ? { missingSlots: x.missingSlots } : {}),
+      ...(x.replySuggestion ? { replySuggestion: x.replySuggestion } : {})
+    })),
+    planPhase: data.planPhase,
+    replyLocale: data.replyLocale,
+    needsClarification: data.needsClarification,
+    ...(data.clarificationQuestion ? { clarificationQuestion: data.clarificationQuestion } : {}),
+    ...(data.confidence !== null ? { confidence: data.confidence } : {}),
+    ...(data.replySuggestion ? { replySuggestion: data.replySuggestion } : {}),
+    planningTasks: data.planningTasks.map((t) => ({
+      taskId: t.taskId,
+      systemModuleId: t.systemModuleId,
+      goal: t.goal,
+      ...(t.resolvedSlots ? { resolvedSlots: t.resolvedSlots } : {}),
+      ...(t.missingSlots.length ? { missingSlots: t.missingSlots } : {}),
+      ...(t.clarificationQuestion ? { clarificationQuestion: t.clarificationQuestion } : {}),
+      ...(t.executable !== null ? { executable: t.executable } : {}),
+      ...(t.skillSteps.length
+        ? {
+            skillSteps: t.skillSteps.map((s) => ({
+              stepId: s.stepId,
+              skillsDomainId: s.skillsDomainId,
+              ...(s.skillsSegmentId ? { skillsSegmentId: s.skillsSegmentId } : {}),
+              ...(s.disclosedSkillIds.length ? { disclosedSkillIds: s.disclosedSkillIds } : {}),
+              ...(s.selectedCapability ? { selectedCapability: s.selectedCapability } : {}),
+              ...(s.requiredParams.length ? { requiredParams: s.requiredParams } : {}),
+              ...(s.providedParams ? { providedParams: s.providedParams } : {}),
+              ...(s.missingParams.length ? { missingParams: s.missingParams } : {}),
+              ...(s.executable !== null ? { executable: s.executable } : {}),
+              ...(s.expectedOutput ? { expectedOutput: s.expectedOutput } : {})
+            }))
+          }
+        : {})
+    }))
+  };
+}
+
+async function runIntentWithSkillTools(
+  systemInstruction: string,
+  userPrompt: string
+): Promise<unknown> {
+  const llm = getModel();
+  const bindTools = (llm as { bindTools?: (tools: unknown[]) => { invoke: (x: unknown) => Promise<unknown> } })
+    .bindTools;
+  if (!bindTools) {
+    return llm.invoke([new SystemMessage(systemInstruction), new HumanMessage(userPrompt)]);
+  }
+  const modelWithTools = bindTools.call(llm, [
+    listSkillsByDomainSegmentTool,
+    invokeSkillTool
+  ]);
+
+  console.log("modelWithTools ->", JSON.stringify(modelWithTools, null, 2));
+
+  const systemMessage = new SystemMessage(systemInstruction);
+  console.log("systemMessage ->", JSON.stringify(systemMessage, null, 2));
+  const humanMessage = new HumanMessage(userPrompt);
+  console.log("humanMessage ->", JSON.stringify(humanMessage, null, 2));
+
+  const messages: Array<SystemMessage | HumanMessage | ToolMessage | { content: unknown; tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }> }> = [
+    systemMessage,
+    humanMessage
+  ];
+  for (let i = 0; i < 20; i++) {
+    const aiMsg = (await modelWithTools.invoke(messages)) as {
+      content: unknown;
+      tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
+    };
+
+    console.log("aiMsg ->", JSON.stringify(aiMsg, null, 2));
+
+    messages.push(aiMsg);
+    const calls = aiMsg.tool_calls ?? [];
+    if (calls.length === 0) return aiMsg;
+    for (let j = 0; j < calls.length; j++) {
+      const c = calls[j]!;
+      const name = c.name ?? "";
+      const args = c.args ?? {};
+      let toolResult = JSON.stringify({ ok: false, error: `unknown tool: ${name}` });
+      try {
+        if (name === "list_skills_by_domain_segment") {
+          toolResult = await runListSkillsByDomainSegmentTool(
+            String(args["domainId"] ?? ""),
+            String(args["segmentId"] ?? "")
+          );
+        } else if (name === "invoke_skill") {
+          toolResult = await runInvokeSkillTool(String(args["skillId"] ?? ""));
+        }
+      } catch (e) {
+        toolResult = JSON.stringify({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e)
+        });
+      }
+      messages.push(
+        new ToolMessage({
+          tool_call_id: c.id ?? `call_${i}_${j}`,
+          content: toolResult
+        })
+      );
+    }
+  }
+  throw new Error("intent_tool_call_exceeded");
+}
+
+async function runIntentWithStructuredOutput(
+  systemInstruction: string,
+  userPrompt: string,
+  toolContext: string
+): Promise<z.infer<typeof IntentLlmOutputSchema>> {
+  const llm = getModel().withStructuredOutput(IntentLlmOutputSchema);
+  const out = await llm.invoke([
+    new SystemMessage(
+      `${systemInstruction}\n\n请基于下方“工具阶段结果”返回最终结构化意图。若工具结果不足，走 blocked/clarify。`
+    ),
+    new HumanMessage(`${userPrompt}\n\n【工具阶段结果】\n${toolContext}`)
+  ]);
+  return IntentLlmOutputSchema.parse(out);
 }
 
 function defaultResolvedSlots(text: string): Record<string, unknown> {
@@ -177,7 +460,7 @@ function missingByRule(
 
 /** 兜底/无规则时写入合法的 `dataQueryDomain`（须在 `listQuerySegmentIds` 内） */
 function coerceDataQueryDomain(ruleDomain: string | undefined): string {
-  const ids = listQuerySegmentIds(getSystemConfig());
+  const ids = listBusinessSegmentIds(getSystemConfig());
   const d = ruleDomain?.trim();
   if (d && ids.includes(d)) return d;
   if (ids.includes("other")) return "other";
@@ -185,79 +468,8 @@ function coerceDataQueryDomain(ruleDomain: string | undefined): string {
 }
 
 function keywordFallbackIntent(userInput: string): IntentResult {
-  const text = userInput.toLowerCase();
-  const isDataQuery =
-    text.includes("查") ||
-    text.includes("查询") ||
-    text.includes("订单") ||
-    text.includes("积分") ||
-    text.includes("会员");
-  if (isDataQuery) {
-    const rule = pickBestRule(text);
-    const resolvedSlots = rule
-      ? extractSlotsByRule(rule, userInput, defaultResolvedSlots(userInput))
-      : defaultResolvedSlots(userInput);
-    const missingSlots = rule ? missingByRule(rule, resolvedSlots) : [];
-    const needsClarification = missingSlots.length > 0;
-    const clarificationQuestion =
-      needsClarification && rule?.clarificationTemplate
-        ? rule.clarificationTemplate
-        : needsClarification
-          ? `请补充以下信息以便查询：${missingSlots.join("、")}`
-          : undefined;
-    return {
-      intents: [
-        {
-          intent: "data_query",
-          goal: "执行数据查询",
-          confidence: 0.5,
-          executable: !needsClarification,
-          needsClarification,
-          ...(clarificationQuestion ? { clarificationQuestion } : {}),
-          resolvedSlots,
-          dataQueryDomain: coerceDataQueryDomain(rule?.domain),
-          targetIntent: rule?.targetIntent,
-          ...(missingSlots.length ? { missingSlots } : {})
-        }
-      ],
-      dominantIntent: "data_query",
-      needsClarification,
-      ...(clarificationQuestion ? { clarificationQuestion } : {}),
-      taskPlan: {
-        domainSegmentRanking: [
-          {
-            domain: coerceDataQueryDomain(rule?.domain),
-            segment: coerceDataQueryDomain(rule?.domain),
-            score: 0.5,
-            reason: rule ? `匹配规则 ${rule.id}` : "关键词兜底命中"
-          }
-        ],
-        subTasks: [
-          {
-            taskId: "task-1",
-            goal: "执行数据查询",
-            selectedEntry: rule?.targetIntent
-              ? { kind: "guide", id: rule.targetIntent }
-              : undefined,
-            executable: !needsClarification,
-            requiredParams: rule?.requiredSlots ?? [],
-            providedParams: resolvedSlots,
-            missingParams: missingSlots,
-            plan: needsClarification
-              ? undefined
-              : ["按目标意图构造查询入参", "执行数据查询子图并返回结果"],
-            expectedOutput: "table"
-          }
-        ],
-        missingParamsSummary: missingSlots,
-        nextAction: needsClarification ? "clarify" : "execute",
-        finalSummary: needsClarification
-          ? "存在缺失参数，需先澄清后执行。"
-          : "参数满足，可执行数据查询。"
-      },
-      confidence: 0.5,
-    } satisfies IntentResult;
-  }
+  void userInput;
+  // 保留空兜底：不做关键词推断，仅返回最小澄清结果。
   return {
     intents: [
       {
@@ -268,8 +480,22 @@ function keywordFallbackIntent(userInput: string): IntentResult {
         replySuggestion: "如需查询订单或会员积分等数据，请直接说明您的需求。"
       }
     ],
-    dominantIntent: "unknown",
-    needsClarification: false,
+    planPhase: "blocked",
+    replyLocale: "auto",
+    planningTasks: [
+      {
+        taskId: "task-1",
+        systemModuleId: "knowledge_qa",
+        goal: "识别用户真实需求并澄清",
+        executable: false,
+        missingSlots: ["user_goal"],
+        clarificationQuestion: "请说明你希望查询或分析的具体对象与时间范围。",
+        expectedOutput: "summary",
+        followUpActions: [{ type: "reply_channel" }]
+      }
+    ],
+    needsClarification: true,
+    clarificationQuestion: "请说明你希望查询或分析的具体对象与时间范围。",
     replySuggestion: "如需查询订单或会员积分等数据，请直接说明您的需求。",
     taskPlan: {
       domainSegmentRanking: [],
@@ -284,6 +510,32 @@ function keywordFallbackIntent(userInput: string): IntentResult {
 
 function mapHighLevelDomain(intent: IntentResult): "data_query" | "other" {
   return intent.intents.some((x) => x.intent === "data_query") ? "data_query" : "other";
+}
+
+function normalizePlanning(intent: IntentResult): IntentResult {
+  if (intent.planPhase && intent.planningTasks) return intent;
+  const primary = intent.intents[0];
+  const dominantIntent = inferDominantIntentFromIntents(intent.intents);
+  const inferredTask = {
+    taskId: "task-1",
+    systemModuleId:
+      dominantIntent === "data_analysis"
+        ? "data_analysis"
+        : dominantIntent === "knowledge_qa"
+          ? "knowledge_qa"
+          : "data_query",
+    goal: primary?.goal ?? "执行任务",
+    executable: !intent.needsClarification,
+    missingSlots: primary?.missingSlots ?? [],
+    clarificationQuestion: intent.clarificationQuestion,
+    expectedOutput: "summary" as const
+  };
+  return {
+    ...intent,
+    planPhase: intent.needsClarification ? "blocked" : "ready",
+    replyLocale: intent.replyLocale ?? "auto",
+    planningTasks: intent.planningTasks?.length ? intent.planningTasks : [inferredTask]
+  };
 }
 
 /**
@@ -317,32 +569,42 @@ export async function runIntentClassifyAgent(
       "getModel + LLM invoke 开始",
       `timeoutMs=${timeoutMs}`
     );
-    const llm = getModel();
     const raw = await Promise.race([
-      llm.invoke([
-        new SystemMessage(instruction),
-        new HumanMessage(`${historyBlock}【当前用户输入】\n${userInput}`)
-      ]),
+      runIntentWithSkillTools(instruction, `${historyBlock}【当前用户输入】\n${userInput}`),
       new Promise<never>((_, rej) => {
         setTimeout(() => rej(new Error("intent_llm_timeout")), timeoutMs);
       })
     ]);
     log("[Intent]", "LLM invoke 结束（原始响应已收到）", undefined, tLlm);
-    const text = messageContentToString(raw.content);
-    const jsonStr = extractJsonObject(text);
+    const rawMsg = raw as { content?: unknown; tool_calls?: unknown };
     log(
       "[Intent]",
-      "LLM 原始结构化输出（截断）",
-      safeJsonSnippet(jsonStr, 1000)
+      "LLM 原始返回（content + tool_calls）",
+      safeJsonSnippet(
+        {
+          content: rawMsg.content,
+          tool_calls: rawMsg.tool_calls
+        },
+        20000
+      )
     );
-    const parsed = JSON.parse(jsonStr) as unknown;
-    const intent = getIntentResultSchema().parse(parsed);
+    const toolPhaseText = messageContentToString((raw as { content: unknown }).content);
+    const structured = await runIntentWithStructuredOutput(
+      instruction,
+      `${historyBlock}【当前用户输入】\n${userInput}`,
+      toolPhaseText
+    );
+    log("[Intent]", "LLM withStructuredOutput 结果（截断）", safeJsonSnippet(structured, 1200));
+    const normalizedParsed = normalizeIntentLikePayload(
+      normalizeStructuredOutputToIntentPayload(structured)
+    );
+    const intent = normalizePlanning(getIntentResultSchema().parse(normalizedParsed));
     log(
       "[Intent]",
       "结构化字段评估",
       safeJsonSnippet(
         {
-          dominantIntent: intent.dominantIntent,
+          dominantIntent: inferDominantIntentFromIntents(intent.intents),
           intents: intent.intents.map((x) => ({
             intent: x.intent,
             executable: x.executable,
@@ -359,7 +621,7 @@ export async function runIntentClassifyAgent(
     log(
       "[Intent]",
       "classify 成功（JSON 已校验）",
-      `dominantIntent=${intent.dominantIntent} intents=${intent.intents.length} needsClarification=${String(intent.needsClarification)}`,
+      `dominantIntent=${inferDominantIntentFromIntents(intent.intents)} intents=${intent.intents.length} needsClarification=${String(intent.needsClarification)}`,
       tAll
     );
     return { intentResult: intent, highLevelDomain: mapHighLevelDomain(intent) };
@@ -372,7 +634,7 @@ export async function runIntentClassifyAgent(
       log(
         "[Intent]",
         "classify 失败 → 关键词兜底",
-        `dominantIntent=${intent.dominantIntent} err=${errMsg.slice(0, 120)}`,
+        `dominantIntent=${inferDominantIntentFromIntents(intent.intents)} err=${errMsg.slice(0, 120)}`,
         tAll
       );
     }

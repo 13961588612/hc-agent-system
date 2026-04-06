@@ -224,20 +224,23 @@ export function listSkillsSegments(config: SystemConfig = getSystemConfig()): Sy
   return listSegmentByFacets(["skills"],config);
 }
 
-export function listQuerySegmentIds(config: SystemConfig = getSystemConfig()): string[] {
+export function listBusinessSegmentIds(config: SystemConfig = getSystemConfig()): string[] {
   if(!config) return [];
-  const business = listSegmentIdsByFacet(config, "business");
-  if (business.length > 0) return [...new Set(business)];
-  const all = config.segments.map((s) => s.id.trim()).filter(Boolean);
-  return all.length > 0 ? [...new Set(all)] : ["other"];
+  return listSegmentByFacets(["business"],config).map((s) => s.id);
+}
+
+/** 兼容旧命名：问数域 segment ids（等价于 business segments） */
+export function listQuerySegmentIds(config: SystemConfig = getSystemConfig()): string[] {
+  return listBusinessSegmentIds(config);
 }
 
 /**
- * 供 Zod `z.enum` 使用（至少一个元素）；与 {@link listQuerySegmentIds} 同源。
+ * 供 Zod `z.enum` 使用（至少一个元素）；与 {@link listBusinessSegmentIds} 同源。
  */
-export function querySegmentZodEnumValues(
-  config: SystemConfig
+export function businessSegmentZodEnumValues(
+  config: SystemConfig = getSystemConfig()
 ): [string, ...string[]] {
-  const ids = listQuerySegmentIds(config);
+  const ids = listBusinessSegmentIds(config);
   return ids as [string, ...string[]];
 }
+

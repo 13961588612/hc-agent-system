@@ -7,6 +7,7 @@ import {
 import type { Runnable } from "@langchain/core/runnables";
 import { nanoid } from "nanoid";
 import { intentAgentNode } from "./intentAgentNode.js";
+import { planGateNode } from "./planGateNode.js";
 import { guideAgentNode } from "./guideAgentNode.js";
 import { executeDataQueryNode } from "./executeDataQueryNode.js";
 import { executeDataAnalysisNode } from "./executeDataAnalysisNode.js";
@@ -19,18 +20,24 @@ import {
 } from "../../contracts/schemas.js";
 import { getClarificationIdleMs } from "../../config/intentPolicy.js";
 import { log } from "../../lib/log/log.js";
-import { getBestDataQueryIntent } from "./intentSelectors.js";
+import {
+  getBestDataQueryIntent,
+  getDominantIntentFromList,
+  hasPlanningBlockers,
+  isPlanningReady
+} from "./intentSelectors.js";
 
 const builder = new StateGraph(OrchestratorStateSchema);
 
 builder.addNode("intent_agent", intentAgentNode);
+builder.addNode("plan_gate", planGateNode);
 builder.addNode("guide_agent", guideAgentNode);
 builder.addNode("execute_data_query", executeDataQueryNode);
 builder.addNode("execute_data_analysis", executeDataAnalysisNode);
 builder.addNode("execute_knowledge_qa", executeKnowledgeQaNode);
 builder.addNode("compose_answer", composeAnswerNode);
 
-function routeAfterIntent(
+function routeAfterPlanGate(
   state: OrchestratorState
 ):
   | "guide_agent"
@@ -40,22 +47,24 @@ function routeAfterIntent(
   const ir = state.intentResult;
   const dq = getBestDataQueryIntent(ir);
   const missingSlots = dq?.missingSlots ?? [];
+  const blocked = hasPlanningBlockers(ir);
+  const ready = isPlanningReady(ir);
+  const dominantIntent = getDominantIntentFromList(ir);
   let next:
     | "guide_agent"
     | "execute_data_analysis"
     | "execute_knowledge_qa"
     | "compose_answer";
-  if (!ir) next = "compose_answer";
-  else if (ir.needsClarification) next = "compose_answer";
-  else if (ir.dominantIntent === "data_analysis") next = "execute_data_analysis";
-  else if (ir.dominantIntent === "knowledge_qa") next = "execute_knowledge_qa";
+  if (!ir || blocked || !ready) next = "compose_answer";
+  else if (dominantIntent === "data_analysis") next = "execute_data_analysis";
+  else if (dominantIntent === "knowledge_qa") next = "execute_knowledge_qa";
   else if (missingSlots.length) next = "compose_answer";
   else if (dq) next = "guide_agent";
   else next = "compose_answer";
   log(
     "[Orchestrator]",
-    "route_after_intent",
-    `next=${next} dominantIntent=${ir?.dominantIntent ?? "none"} needsClarification=${String(ir?.needsClarification)} missingSlots=${missingSlots.join(",") || "none"} targetIntent=${dq?.targetIntent ?? ""}`
+    "route_after_plan_gate",
+    `next=${next} planPhase=${ir?.planPhase ?? "none"} dominantIntent=${dominantIntent} needsClarification=${String(ir?.needsClarification)}`
   );
   return next;
 }
@@ -73,7 +82,9 @@ function routeAfterGuide(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 builder.addEdge(START, "intent_agent" as any);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-builder.addConditionalEdges("intent_agent" as any, routeAfterIntent as any, {
+builder.addEdge("intent_agent" as any, "plan_gate" as any);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+builder.addConditionalEdges("plan_gate" as any, routeAfterPlanGate as any, {
   guide_agent: "guide_agent",
   execute_data_analysis: "execute_data_analysis",
   execute_knowledge_qa: "execute_knowledge_qa",

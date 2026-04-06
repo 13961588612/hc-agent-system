@@ -1,7 +1,11 @@
 import { getMaxClarificationRounds } from "../../config/intentPolicy.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
-import { getBestDataQueryIntent, getBestIntentByType } from "./intentSelectors.js";
+import {
+  getBestDataQueryIntent,
+  getBestIntentByType,
+  getDominantIntentFromList
+} from "./intentSelectors.js";
 
 /** 非澄清类回复：清空追问 streak */
 const clearedClarification = {
@@ -13,6 +17,7 @@ function wantsClarification(ir: OrchestratorState["intentResult"]): boolean {
   if (!ir) return false;
   if (ir.needsClarification && ir.clarificationQuestion?.trim()) return true;
   if ((getBestDataQueryIntent(ir)?.missingSlots?.length ?? 0) > 0) return true;
+  if ((ir.planningTasks ?? []).some((t) => (t.missingSlots?.length ?? 0) > 0)) return true;
   if (ir.taskPlan?.nextAction === "clarify") return true;
   if (ir.taskPlan?.missingParamsSummary?.length) return true;
   return false;
@@ -33,12 +38,26 @@ function planClarificationMessage(ir: OrchestratorState["intentResult"]): string
   return ir.taskPlan.finalSummary?.trim() || "当前任务仍需补充必要信息。";
 }
 
+function blockedPlanningMessage(ir: OrchestratorState["intentResult"]): string | undefined {
+  if (!ir || ir.planPhase !== "blocked") return undefined;
+  const missing = (ir.planningTasks ?? [])
+    .flatMap((t) => t.missingSlots ?? [])
+    .filter((x, i, arr) => arr.indexOf(x) === i);
+  const zh =
+    ir.clarificationQuestion?.trim() ||
+    (missing.length > 0 ? `请补充以下信息后再继续：${missing.join("、")}` : "请先补充必要信息后继续。");
+  if (ir.replyLocale === "en") {
+    return "Please provide the missing information so I can continue the plan.";
+  }
+  return zh;
+}
+
 function planExecutionPreviewMessage(ir: OrchestratorState["intentResult"]): string | undefined {
   if (!ir?.taskPlan || ir.taskPlan.nextAction !== "execute") return undefined;
   const executableTasks = (ir.taskPlan.subTasks ?? []).filter((t) => t.executable);
   if (executableTasks.length === 0) return undefined;
   const lines = executableTasks.slice(0, 3).map((t) => {
-    const entry = t.selectedEntry?.id ? `（${t.selectedEntry.id}）` : "";
+    const entry = t.selectedCapability?.id ? `（${t.selectedCapability.id}）` : "";
     return `${t.taskId}: ${t.goal}${entry}`;
   });
   const more = executableTasks.length > 3 ? `；其余 ${executableTasks.length - 3} 个子任务已省略` : "";
@@ -58,6 +77,9 @@ function assistantSnippetFromFinalAnswer(finalAnswer: unknown): string {
       return o.message.slice(0, 2000);
     }
     if (o.type === "task_plan" && typeof o.message === "string") {
+      return o.message.slice(0, 2000);
+    }
+    if (o.type === "plan_blocked" && typeof o.message === "string") {
       return o.message.slice(0, 2000);
     }
     if (o.type === "data_query") return "已返回数据查询结果。";
@@ -86,10 +108,11 @@ export function composeAnswerNode(
   log(
     "[Orchestrator]",
     "node compose_answer 开始",
-    `dominantIntent=${state.intentResult?.dominantIntent ?? "none"} intents=${state.intentResult?.intents?.length ?? 0} resultsIndexKeys=${riKeys} clarificationRound=${state.clarificationRound ?? 0}`
+    `dominantIntent=${getDominantIntentFromList(state.intentResult)} intents=${state.intentResult?.intents?.length ?? 0} resultsIndexKeys=${riKeys} clarificationRound=${state.clarificationRound ?? 0}`
   );
 
   const ir = state.intentResult;
+  const dominantIntent = getDominantIntentFromList(ir);
   const dq = getBestDataQueryIntent(ir);
   const maxR = getMaxClarificationRounds();
   const round = state.clarificationRound ?? 0;
@@ -108,6 +131,19 @@ export function composeAnswerNode(
       finalAnswer,
       conversationTurns: [
         { role: "assistant" as const, content: message.slice(0, 2000) }
+      ]
+    });
+  }
+
+  if (ir?.planPhase === "blocked") {
+    const message = blockedPlanningMessage(ir) || "请先补充必要信息后继续。";
+    const finalAnswer = { type: "plan_blocked" as const, message, planningTasks: ir.planningTasks ?? [] };
+    return logComposeDone(t0, {
+      finalAnswer,
+      clarificationRound: round + 1,
+      lastClarificationAtMs: Date.now(),
+      conversationTurns: [
+        { role: "assistant" as const, content: assistantSnippetFromFinalAnswer(finalAnswer) }
       ]
     });
   }
@@ -195,9 +231,9 @@ export function composeAnswerNode(
     });
   }
 
-  if (ir?.dominantIntent === "chitchat") {
+  if (dominantIntent === "chitchat") {
     const message =
-      ir.replySuggestion?.trim() ||
+      ir?.replySuggestion?.trim() ||
       "您好！如需查询订单或会员积分等数据，请告诉我具体需求。";
     const finalAnswer = { type: "chitchat" as const, message };
     return logComposeDone(t0, {
@@ -209,9 +245,9 @@ export function composeAnswerNode(
     });
   }
 
-  if (ir?.dominantIntent === "unknown") {
+  if (dominantIntent === "unknown") {
     const message =
-      ir.replySuggestion?.trim() ||
+      ir?.replySuggestion?.trim() ||
       "当前仅支持简单的数据查询示例，请尝试询问订单或会员积分相关问题。";
     const finalAnswer = { type: "fallback" as const, message };
     return logComposeDone(t0, {
@@ -223,13 +259,13 @@ export function composeAnswerNode(
     });
   }
 
-  if (ir?.dominantIntent === "data_analysis") {
+  if (dominantIntent === "data_analysis") {
     const ia = getBestIntentByType(ir, "data_analysis");
     const message =
       ia?.goal?.trim()
         ? `已识别为数据分析需求：${ia.goal.trim()}。当前版本将先完成查询准备，随后进入分析步骤。`
         : "已识别为数据分析需求。请补充分析口径（指标、时间范围、分组维度）以继续。";
-    const finalAnswer = { type: "task_plan" as const, message, taskPlan: ir.taskPlan };
+    const finalAnswer = { type: "task_plan" as const, message, taskPlan: ir?.taskPlan };
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -239,13 +275,13 @@ export function composeAnswerNode(
     });
   }
 
-  if (ir?.dominantIntent === "knowledge_qa") {
+  if (dominantIntent === "knowledge_qa") {
     const ik = getBestIntentByType(ir, "knowledge_qa");
     const message =
       ik?.goal?.trim()
         ? `已识别为知识问答需求：${ik.goal.trim()}。我会基于已披露能力整理答案。`
         : "已识别为知识问答需求，请补充你希望查询的主题范围或对象。";
-    const finalAnswer = { type: "task_plan" as const, message, taskPlan: ir.taskPlan };
+    const finalAnswer = { type: "task_plan" as const, message, taskPlan: ir?.taskPlan };
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,

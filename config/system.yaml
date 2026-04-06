@@ -28,7 +28,7 @@ domains:
     title: 意图
     description: Skill 顶层域；用于技能分层与渐进披露
     facets: [skills]
-  - id: core
+  - id: common
     title: 核心通用能力
     description: skills顶层域；如 sql-query、invoke-skill 等底层能力
     facets: [skills]

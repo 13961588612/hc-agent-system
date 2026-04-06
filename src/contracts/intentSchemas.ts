@@ -1,49 +1,79 @@
 import { z } from "zod/v3";
 import {
   getSystemConfig,
-  querySegmentZodEnumValues,
+  businessSegmentZodEnumValues,
   type SystemConfig
 } from "../config/systemConfig.js";
 
 /**
- * 意图识别结构化结果（与 `docs/intent-recognition-execution-plan.md` 里程碑 1 对齐）。
+ * 意图识别结构化结果
  *
- * ## `dataQueryDomain` 与系统配置
+ * ## 语义分层
  *
- * 问数业务分段 id 来自 `config/system.yaml` 的 `segments`（通常 `facets` 含 `business`），
- * 由 {@link listQuerySegmentIds} / {@link querySegmentZodEnumValues} 派生；**非写死在代码里**。
- * 启动时 `initCore` 会 `initSystemConfig` 并调用 {@link refreshIntentResultSchemaCache}，使
- * {@link getIntentResultSchema} 与当前配置一致。
+ * 1. **`intents[]`**：多意图列表，每条描述一个子意图及其槽位、可执行性与追问信息。
+ * 2. **根级字段**（`needsClarification`、`clarificationQuestion` 等）：用于全局澄清与回复控制。
+ * 3. **`planningTasks` / `taskPlan`（可选）**：任务拆解、能力选择、缺参汇总与执行预览。
  *
- * ## 语义分层（避免读代码时混淆）
+ * ## 一致性建议
  *
- * 1. **`intents[]`**：多意图列表，每条描述一个子意图及其槽位/问数域等；路由问数时由
- *    `getBestDataQueryIntent` 选取其中 `intent === "data_query"` 的一条（优先无 `missingSlots`）。
- * 2. **根级字段**（`dominantIntent`、`needsClarification`、`clarificationQuestion` 等）：
- *    全局路由与合成答案的「摘要」；`orchestratorGraph.routeAfterIntent` 先看根级
- *    `needsClarification`，再看 `dominantIntent`，再看问数条的 `missingSlots`。
- * 3. **`taskPlan`（可选）**：更细的任务拆解与缺参汇总，供 `composeAnswerNode` 生成澄清话术
- *    或执行预览；与根级、子意图字段**可并存**，运行时多处会分别读取。
+ * - `needsClarification` 与 `clarificationQuestion` 语义保持一致。
+ * - `planningTasks[].missingSlots`、`taskPlan.missingParamsSummary` 与 `nextAction` 保持一致。
+ * - `confidence`、`replySuggestion` 在根级与子意图可并存，建议避免语义冲突。
  *
- * ## 已知「Schema 不校验、但业务上易矛盾」的约定缺口
- *
- * - **`dominantIntent` 与 `intents[]`**：Zod 不保证根级 `dominantIntent` 在 `intents` 中至少出现一次，
- *   也不保证与同标签子意图的 `confidence` 一致。建议模型输出时：`dominantIntent` 与某条
- *   `intents[].intent` 对齐，且该条代表本轮主叙事。
- * - **澄清标志多处**：根级 `needsClarification`、各 `intents[].needsClarification`、`taskPlan.nextAction`、
- *   `missingSlots` / `missingParamsSummary` 可能不同步。当前实现：`composeAnswerNode.wantsClarification`
- *   在根级 `needsClarification`、问数 `missingSlots`、`taskPlan` 多条路径上**或**关系；
- *   路由在 `needsClarification === false` 时仍会因 `missingSlots.length > 0` 走向澄清。建议：
- *   若需先澄清，根级 `needsClarification=true` 并填 `clarificationQuestion`，且与问数条状态一致。
- * - **`needsClarification === true` 与可执行问数**：可同时存在「全局要澄清」与某条 `data_query` 已齐参；
- *   路由仍以根级 `needsClarification` 优先进 `compose_answer`，不会进 `guide_agent`。
- * - **`confidence`**：根级与各子意图可各有一份，无互斥；不作为路由硬条件。
- * - **`replySuggestion`**：根级与各子意图均可有；合成逻辑按 `dominantIntent` 分支选用，避免根与子意图各说各话。
- *
- * 以上矛盾不会导致 Zod parse 失败，但会导致日志与产品表现难排查；注释用于约束调用方与 Prompt 预期。
+ * 注：Schema 主要负责结构校验，跨字段语义一致性由调用方与编排逻辑共同保证。
  */
 export function buildIntentResultSchema(config: SystemConfig) {
-  const dataQueryDomainSchema = z.enum(querySegmentZodEnumValues(config));
+  const businessSegmentSchema = z.enum(businessSegmentZodEnumValues(config));
+  const outputTypeSchema = z.enum(["table", "object", "summary"]);
+  const followUpActionSchema = z.object({
+    type: z.enum(["write_artifact", "reply_channel", "invoke_agent", "none"]),
+    params: z.record(z.string(), z.unknown()).optional()
+  });
+  const skillStepSchema = z.object({
+    /** 步骤唯一标识（同一 task 内稳定即可），用于日志与执行轨迹对齐 */
+    stepId: z.string(),
+    /** 技能域（如 data_query / data_analysis），用于粗粒度披露能力范围 */
+    skillsDomainId: z.string(),
+    /** 技能分段（如 member / ecommerce），用于缩小候选能力集合 */
+    skillsSegmentId: z.string().optional(),
+    /** 披露阶段得到的候选能力 id 列表（可多项） */
+    disclosedSkillIds: z.array(z.string()).optional(),
+    /**
+     * 收敛后的最终能力入口（通常是单个）。
+     * - `kind=skill`：可执行技能；
+     * - `kind=guide`：指南能力（可再映射到可执行技能）。
+     */
+    selectedCapability: z
+      .object({
+        kind: z.enum(["skill", "guide"]),
+        id: z.string()
+      })
+      .optional(),
+    /** 该步骤要求的参数名列表（用于缺参判定） */
+    requiredParams: z.array(z.string()).optional(),
+    /** 当前已提供参数（可来自用户输入、上下文、槽位抽取） */
+    providedParams: z.record(z.string(), z.unknown()).optional(),
+    /** 仍缺失参数名列表；非空通常意味着该 step 不可执行 */
+    missingParams: z.array(z.string()).optional(),
+    /** 该步骤是否可直接执行（模型自评 + 参数判定结果） */
+    executable: z.boolean().optional(),
+    /** 预期输出形态，供后续节点做展示与衔接 */
+    expectedOutput: outputTypeSchema.optional(),
+    /** 该步骤完成后的后续动作（写产物、回包、调用子 agent 等） */
+    followUpActions: z.array(followUpActionSchema).optional()
+  });
+  const planningTaskSchema = z.object({
+    taskId: z.string(),
+    systemModuleId: z.string(),
+    goal: z.string(),
+    resolvedSlots: z.record(z.string(), z.unknown()).optional(),
+    missingSlots: z.array(z.string()).optional(),
+    clarificationQuestion: z.string().optional(),
+    executable: z.boolean().optional(),
+    skillSteps: z.array(skillStepSchema).optional(),
+    expectedOutput: outputTypeSchema.optional(),
+    followUpActions: z.array(followUpActionSchema).optional()
+  });
 
   return z.object({
     /**
@@ -89,7 +119,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
            * 问数业务分段 id，与 `targetIntent` 成对使用；仅对 `data_query` 有意义。
            * 合法值由当前 `system.yaml` 的 segments（见 `listQuerySegmentIds`）决定。
            */
-          dataQueryDomain: dataQueryDomainSchema.optional(),
+          dataQueryDomain: businessSegmentSchema.optional(),
           /**
            * 稳定能力/指南 id（与 `skills/intent` 规则、`targetIntent` 约定一致）。
            * 缺省时问数子图可能退化为关键词或 LLM 路径。
@@ -110,17 +140,16 @@ export function buildIntentResultSchema(config: SystemConfig) {
       .min(1),
 
     /**
-     * 主导意图，决定 `routeAfterIntent` 在「未全局澄清、且问数无 missingSlots」时的分支：
-     * `data_analysis` / `knowledge_qa` 直跳执行节点；`data_query` 且存在问数条则进 `guide_agent`。
-     * 与 `intents[]` 无强制对应关系（见文件头「约定缺口」）。
+     * 规划阶段状态：
+     * - draft: 仅完成初步分解
+     * - blocked: 存在缺参/需澄清
+     * - ready: 规划通过，可进入执行
      */
-    dominantIntent: z.enum([
-      "data_query",
-      "data_analysis",
-      "knowledge_qa",
-      "chitchat",
-      "unknown"
-    ]),
+    planPhase: z.enum(["draft", "blocked", "ready"]).optional(),
+    /** 规划阶段的语言（尤其澄清话术） */
+    replyLocale: z.enum(["zh", "en", "auto"]).optional(),
+    /** 规划主产物：按 system-module 切分的任务列表 */
+    planningTasks: z.array(planningTaskSchema).optional(),
 
     /**
      * 全局：是否应先向用户澄清再执行子图。为 **true** 时路由直接 `compose_answer`，
@@ -174,8 +203,9 @@ export function buildIntentResultSchema(config: SystemConfig) {
             z.object({
               taskId: z.string(),
               goal: z.string(),
+              systemModuleId: z.string().optional(),
               /** 计划使用的技能或指南入口；`kind` 与仓库内 skill/guide id 对应 */
-              selectedEntry: z
+              selectedCapability: z
                 .object({
                   kind: z.enum(["skill", "guide"]),
                   id: z.string()
@@ -191,7 +221,8 @@ export function buildIntentResultSchema(config: SystemConfig) {
               /** 自然语言或步骤标签式的执行计划，仅作说明 */
               plan: z.array(z.string()).optional(),
               /** 预期产出形态，不影响当前子图分支 */
-              expectedOutput: z.enum(["table", "object", "summary"]).optional()
+              expectedOutput: outputTypeSchema.optional(),
+              followUpActions: z.array(followUpActionSchema).optional()
             })
           )
           .optional(),

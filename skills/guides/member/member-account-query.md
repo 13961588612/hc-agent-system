@@ -6,7 +6,7 @@ description: 会员积分账户快照与最近流水查询；数据源 member（
 domain: data_query
 segment: member
 relatedSkillIds:
-  - sql-query
+  - sql_query
 tags:
   - member
   - points
@@ -27,7 +27,7 @@ capabilities:
           type: string[]
           description: 会员内部编号列表，与 SQL 绑定一一对应，最多 10 个
     execution:
-      skillId: sql-query
+      skillId: sql_query
       sqlTemplateRef: inline
       confirmBeforeRun: false
       minConfidence: 0.72
@@ -39,7 +39,7 @@ capabilities:
           type: string[]
           description: 会员卡号列表，与 SQL 绑定一一对应，最多 10 个
     execution:
-      skillId: sql-query
+      skillId: sql_query
       sqlTemplateRef: inline
       confirmBeforeRun: false
       minConfidence: 0.72
@@ -51,7 +51,7 @@ capabilities:
           type: string[]
           description: 会员内部编号列表，与 SQL 绑定一一对应，最多 10 个
     execution:
-      skillId: sql-query
+      skillId: sql_query
       sqlTemplateRef: inline
       confirmBeforeRun: false
       minConfidence: 0.72
@@ -96,7 +96,7 @@ capabilities:
 |----|------|
 | **能力 id** | `member.points_account.by_vip_id` |
 | **数据源** | `member`（`bfcrm8`） |
-| **关联技能** | `sql-query` |
+| **关联技能** | `sql_query` |
 | **触发** | 已解析 **会员编号 `hyid`**，查**积分账户快照**（当前/可用/冻结等，以实际表为准） |
 
 **输入**

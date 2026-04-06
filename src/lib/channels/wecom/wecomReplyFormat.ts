@@ -7,6 +7,7 @@ export function formatFinalAnswerForChannel(result: unknown): string {
     if (o.type === "clarification" && typeof o.message === "string") return o.message;
     if (o.type === "chitchat" && typeof o.message === "string") return o.message;
     if (o.type === "task_plan" && typeof o.message === "string") return o.message;
+    if (o.type === "plan_blocked" && typeof o.message === "string") return o.message;
     if (o.type === "data_query") return JSON.stringify(result, null, 2);
   }
   return JSON.stringify(result, null, 2);

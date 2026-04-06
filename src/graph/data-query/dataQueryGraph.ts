@@ -1,11 +1,15 @@
 import { START, StateGraph } from "@langchain/langgraph";
-import { tryGetDbClientManager } from "../../config/dbAppContext.js";
+import { dbClientManager } from "../../lib/infra/dbClientManager.js";
 import { DummyDbClient, type DbClient, type SqlQueryResult } from "../../lib/infra/dbClient.js";
-import { runSqlQuerySkill } from "../../lib/skills/sqlQuerySkill.js";
+import { runSqlQueryTool } from "../../lib/tools/sqlQueryTool.js";
+import { runInvokeSkillTool } from "../../lib/tools/skillsTools.js";
+import type { SqlSkillInput } from "../../lib/skills/core/sqlQuerySkill.js";
 import type { DataQueryInput, DataQueryResult, QueryDomain } from "../../contracts/types.js";
 import { DataQueryState, DataQueryStateSchema } from "../../contracts/schemas.js";
 import { getSystemConfig, listQuerySegmentIds } from "../../config/systemConfig.js";
 import type { Runnable } from "@langchain/core/runnables";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { getModel } from "../../model/index.js";
 import { log } from "../../lib/log/log.js";
 
 /** 单任务内 LLM 注入 SQL 条数上限 */
@@ -43,10 +47,9 @@ function effectiveDemoUserId(input: DataQueryInput): string {
  * 按连接键解析客户端；若无则回退 `default`，再回退 Dummy。
  */
 function resolveDbClientByKey(key: string): DbClient {
-  const mgr = tryGetDbClientManager();
-  const primary = mgr?.tryGet(key);
+  const primary = dbClientManager.tryGet(key);
   if (primary) return primary;
-  const fallback = mgr?.tryGet("default");
+  const fallback = dbClientManager.tryGet("default");
   if (fallback) return fallback;
   return new DummyDbClient();
 }
@@ -61,18 +64,80 @@ async function runSqlQuerySkillWithOptionalFallback(
   dbKey: string,
   db: DbClient
 ): Promise<SqlQueryResult> {
+  if (purpose) {
+    console.log("[SqlSkill] purpose:", purpose);
+  }
   try {
-    return await runSqlQuerySkill({ sql, params, purpose }, db);
+    return await db.query({ sql, params });
   } catch (err) {
     if (dbKey !== MEMBER_DB_KEY) throw err;
-    const fb = tryGetDbClientManager()?.tryGet("default");
+    const fb = dbClientManager.tryGet("default");
     if (!fb || fb === db) throw err;
     console.warn(
       `[DataQuery] 数据源 "${dbKey}" 执行失败，回退 default：`,
       err instanceof Error ? err.message : err
     );
-    return runSqlQuerySkill({ sql, params, purpose }, fb);
+    return fb.query({ sql, params });
   }
+}
+
+function pickSelectedSkillIds(input: DataQueryInput): string[] {
+  const steps = input.planningTask?.skillSteps ?? [];
+  const ids: string[] = [];
+  for (const s of steps) {
+    if (s.executable === false) continue;
+    const id = s.selectedCapability?.id?.trim();
+    if (id) ids.push(id);
+  }
+  if (ids.length > 0) return ids;
+  const fallback = input.targetIntent?.trim();
+  return fallback ? [fallback] : [];
+}
+
+function extractJsonObject(text: string): string {
+  const s = text.trim();
+  const first = s.indexOf("{");
+  const last = s.lastIndexOf("}");
+  if (first < 0 || last < 0 || last <= first) {
+    throw new Error("LLM 未返回 JSON 对象");
+  }
+  return s.slice(first, last + 1);
+}
+
+async function buildSqlBySkillWithLlm(input: {
+  userInput: string;
+  resolvedSlots?: Record<string, unknown>;
+  skillId: string;
+  skillDetailJson: string;
+}): Promise<SqlSkillInput> {
+  const llm = getModel();
+  const prompt = [
+    "你是数据查询 SQL 生成器。",
+    "任务：根据用户问题、槽位、skill 详情，输出可执行的参数化 SQL 输入。",
+    "必须仅输出 JSON 对象，不要 markdown，不要解释。",
+    "JSON schema:",
+    '{ "sql": "string", "params": ["any"], "dbClientKey": "string", "purpose": "string" }',
+    "- 必须使用参数化 SQL，禁止拼接用户输入到 SQL 文本。",
+    "- dbClientKey 缺省用 member 或 default（二选一）。",
+    "- label 与 purpose 默认使用 skillId。",
+    "",
+    `skillId: ${input.skillId}`,
+    `用户输入: ${input.userInput}`,
+    `槽位: ${JSON.stringify(input.resolvedSlots ?? {}, null, 2)}`,
+    `skill详情: ${input.skillDetailJson}`
+  ].join("\n");
+  const raw = await llm.invoke([new SystemMessage("你只返回 JSON。"), new HumanMessage(prompt)]);
+  const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+  const jsonText = extractJsonObject(content);
+  const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+  const sql = String(parsed.sql ?? "").trim();
+  if (!sql) throw new Error("LLM 生成 SQL 为空");
+  return {
+    sql,
+    params: Array.isArray(parsed.params) ? parsed.params : [],
+    dbClientKey: String(parsed.dbClientKey ?? "").trim() || "member",
+    purpose: String(parsed.purpose ?? "").trim() || input.skillId
+  };
 }
 
 const builder = new StateGraph(DataQueryStateSchema);
@@ -131,6 +196,97 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
     `queryDomain=${state.queryDomain ?? ""} queryIntent=${state.queryIntent ?? ""}`
   );
   const demoDb = resolveDbClientByKey("default");
+  const selectedSkillIds = pickSelectedSkillIds(state.input).slice(0, MAX_SQL_QUERIES);
+
+  if (!state.input.sqlQueries?.length && !state.input.sqlQuery?.sql?.trim() && selectedSkillIds.length > 0) {
+    try {
+      const tPlan = Date.now();
+      const tables: Array<{
+        name?: string;
+        meta?: Record<string, unknown>;
+        rows: Array<Record<string, unknown>>;
+      }> = [];
+      const steps: Array<{ kind: "sql"; id?: string; sql: string; params?: unknown[] }> = [];
+      const stepErrors: Record<string, string> = {};
+
+      for (let i = 0; i < selectedSkillIds.length; i++) {
+        const skillId = selectedSkillIds[i]!;
+        try {
+          const skillDetailJson = await runInvokeSkillTool(skillId);
+          const sqlQueryInput = await buildSqlBySkillWithLlm({
+            userInput: state.input.userInput,
+            resolvedSlots: state.input.resolvedSlots,
+            skillId,
+            skillDetailJson
+          });
+          const sqlResultText = await runSqlQueryTool(sqlQueryInput);
+          const sqlResult = JSON.parse(sqlResultText) as SqlQueryResult;
+          steps.push({
+            kind: "sql" as const,
+            id: skillId,
+            sql: sqlQueryInput.sql,
+            params: sqlQueryInput.params
+          });
+          tables.push({
+            name: skillId,
+            meta: { dbClientKey: sqlQueryInput.dbClientKey ?? "member" },
+            rows: sqlResult.rows
+          });
+          log(
+            "[DataQuery]",
+            "按 planningTask/skillId 执行单步完成",
+            `step=${i + 1}/${selectedSkillIds.length} skillId=${skillId} rowCount=${sqlResult.rowCount}`
+          );
+        } catch (e) {
+          stepErrors[skillId] = e instanceof Error ? e.message : String(e);
+        }
+      }
+
+      const hasTables = tables.length > 0;
+      const hasErr = Object.keys(stepErrors).length > 0;
+      log(
+        "[DataQuery]",
+        "planningTask skill 链路完成",
+        `steps=${selectedSkillIds.length} success=${tables.length} failed=${Object.keys(stepErrors).length}`,
+        tPlan
+      );
+      if (!hasTables && hasErr) {
+        return {
+          ...state,
+          executionPlan: { steps },
+          result: {
+            domain: state.queryDomain ?? defaultQueryDomainTag(),
+            intent: selectedSkillIds[0] ?? "unknown",
+            dataType: "table" as const,
+            meta: {
+              source: "planning_task_skill_chain",
+              error: "skill 链路全部执行失败",
+              stepErrors
+            },
+            rows: []
+          }
+        };
+      }
+      return {
+        ...state,
+        executionPlan: { steps },
+        result: {
+          domain: state.queryDomain ?? defaultQueryDomainTag(),
+          intent: selectedSkillIds[0] ?? "unknown",
+          dataType: tables.length > 1 ? ("tables" as const) : ("table" as const),
+          meta: {
+            source: "planning_task_skill_chain",
+            ...(hasErr ? { stepErrors } : {})
+          },
+          rows: tables.length === 1 ? tables[0]!.rows : [],
+          ...(tables.length > 1 ? { tables } : {})
+        }
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      log("[DataQuery]", "planningTask skill 链路失败，回退旧逻辑", msg.slice(0, 160));
+    }
+  }
 
   if (state.input.sqlQueries?.length) {
     const list = state.input.sqlQueries.slice(0, MAX_SQL_QUERIES);
@@ -302,7 +458,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
   }
 
   const tDemo = Date.now();
-  const sqlResult = await runSqlQuerySkill({ sql, params }, demoDb);
+  const sqlResult = await demoDb.query({ sql, params });
   log(
     "[DataQuery]",
     "演示 SQL 执行完成",

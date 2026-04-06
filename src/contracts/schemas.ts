@@ -21,6 +21,33 @@ const DataQuerySqlItemSchema = z.object({
   purpose: z.string().optional()
 });
 
+const DataQueryPlanningTaskSchema = z.object({
+  taskId: z.string().optional(),
+  goal: z.string().optional(),
+  systemModuleId: z.string().optional(),
+  skillSteps: z
+    .array(
+      z.object({
+        stepId: z.string().optional(),
+        skillsDomainId: z.string().optional(),
+        skillsSegmentId: z.string().optional(),
+        disclosedSkillIds: z.array(z.string()).optional(),
+        selectedCapability: z
+          .object({
+            kind: z.enum(["skill", "guide"]).optional(),
+            id: z.string().optional()
+          })
+          .optional(),
+        requiredParams: z.array(z.string()).optional(),
+        providedParams: z.record(z.string(), z.unknown()).optional(),
+        missingParams: z.array(z.string()).optional(),
+        executable: z.boolean().optional(),
+        expectedOutput: z.enum(["table", "object", "summary"]).optional()
+      })
+    )
+    .optional()
+});
+
 /** DataQueryInput schema */
 export const DataQueryInputSchema = z.object({
   userInput: z.string(),
@@ -28,6 +55,7 @@ export const DataQueryInputSchema = z.object({
   env: EnvConfigSchema,
   sqlQuery: DataQuerySqlItemSchema.optional(),
   sqlQueries: z.array(DataQuerySqlItemSchema).optional(),
+  planningTask: DataQueryPlanningTaskSchema.optional(),
   /** 意图节点解析的槽位，子图优先据此路由与绑参 */
   resolvedSlots: z.record(z.string(), z.unknown()).optional(),
   /** 子图路由意图 id，与 `dataQueryDomain` 成对使用（来自 IntentResult.targetIntent） */

@@ -14,7 +14,11 @@ import {
 } from "../../lib/guides/sqlTemplateBind.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
-import { getBestDataQueryIntent } from "./intentSelectors.js";
+import {
+  getBestDataQueryIntent,
+  getPrimaryPlanningTask,
+  isPlanningReady
+} from "./intentSelectors.js";
 
 function normalizeStringList(v: unknown, max: number): string[] {
   if (Array.isArray(v)) {
@@ -120,6 +124,7 @@ function resolveGuideMatch(
   state: OrchestratorState
 ): { guide: SkillGuideEntry; capability: GuideCapabilityMeta } | undefined {
   const ir = state.intentResult;
+  const pt = getPrimaryPlanningTask(ir, "data_query");
   const dq = getBestDataQueryIntent(ir);
   if (!ir || !dq) return undefined;
   const baseSlots = (dq.resolvedSlots ?? {}) as Record<string, unknown>;
@@ -131,7 +136,9 @@ function resolveGuideMatch(
   const phone = extractPhoneFromText(state.input.userInput);
   if (card && !slots.member_card) slots.member_card = card;
   if (phone && !slots.phone) slots.phone = phone;
-  const key = dq.targetIntent?.trim() ?? "";
+  const plannedEntry =
+    pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability?.id?.trim() ?? "";
+  const key = plannedEntry || dq.targetIntent?.trim() || "";
   if (key) {
     const hit = findGuideCapabilityByKey(key);
     if (hit?.capability) return { guide: hit.guide, capability: hit.capability };
@@ -167,6 +174,7 @@ export function guideAgentNode(
   const dq = getBestDataQueryIntent(ir);
   if (
     !ir ||
+    !isPlanningReady(ir) ||
     !dq ||
     ir.needsClarification ||
     (dq.missingSlots?.length ?? 0) > 0
@@ -174,7 +182,7 @@ export function guideAgentNode(
     log(
       "[Orchestrator]",
       "node guide_agent 跳过",
-      "非 data_query 或意图层已澄清/缺槽",
+      !isPlanningReady(ir) ? "规划未就绪" : "非 data_query 或意图层已澄清/缺槽",
       t0
     );
     return {
@@ -315,7 +323,7 @@ export function guideAgentNode(
         sqlQuery: {
           sql,
           params,
-          dbClientKey: "member",
+          dbClientKey: dq.dataQueryDomain ?? "member",
           label: capability.id,
           purpose: capability.id
         }
