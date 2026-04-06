@@ -43,8 +43,9 @@ const IntentLlmOutputSchema = z.object({
         needsClarification: z.boolean().nullable().default(null),
         clarificationQuestion: z.string().nullable().default(null),
         resolvedSlots: z.record(z.unknown()).nullable().default(null),
-        dataQueryDomain: z.string().nullable().default(null),
-        targetIntent: z.string().nullable().default(null),
+        domainId: z.string().nullable().default(null),
+        segmentId: z.string().nullable().default(null),
+        targetEntryId: z.string().nullable().default(null),
         missingSlots: z.array(z.string()).default([]),
         replySuggestion: z.string().nullable().default(null)
       })
@@ -109,7 +110,7 @@ function buildIntentJsonInstructionBase(): string {
 3) 必填核心字段至少包含：intents, planPhase, replyLocale, planningTasks, needsClarification。
 
 动态枚举约束（以当前系统配置为准）：
-- dataQueryDomain 仅可取：${domainLiteral || "other"}
+- segmentId 仅可取：${domainLiteral || "other"}
 - planningTasks[].systemModuleId 优先取：${moduleIds.join(", ") || "data_query,data_analysis,knowledge_qa"}
 - skillSteps[].skillsDomainId 可取：${skillsDomainIds.join(", ") || "core,data_query"}
 - skillSteps[].skillsSegmentId 可取：${skillsSegmentIds.join(", ") || "member,ecommerce,other"}
@@ -117,7 +118,7 @@ function buildIntentJsonInstructionBase(): string {
 一致性约束（必须满足）：
 - 多意图允许并存，不要强制单意图。
 - 若存在关键缺参：needsClarification=true，planPhase="blocked"，并给 clarificationQuestion。
-- 若 data_query 可执行：至少一条 data_query 含 dataQueryDomain、targetIntent、resolvedSlots。
+- 若存在可执行项：至少一条子意图含 domainId、segmentId、targetEntryId、resolvedSlots。
 - taskPlan.nextAction 与是否缺参一致（execute / clarify）。
 - 优先采用渐进式披露：先给 disclosedSkillIds，再收敛 selectedCapability.id。
 
@@ -137,8 +138,8 @@ function buildIntentInstructionFromRules(): string {
   const rules = listIntentRules();
   const lines = rules.map(intentRulePromptLine);
   const section = lines.length
-    ? `\n\n可用能力列表（优先从下列 id 中选择 targetIntent）：\n${lines.join("\n")}`
-    : `\n\n当前未发现能力列表；若是 data_query，可返回描述性 targetIntent。`;
+    ? `\n\n可用能力列表（优先从下列 id 中选择 targetEntryId）：\n${lines.join("\n")}`
+    : `\n\n当前未发现能力列表；可返回描述性 targetEntryId。`;
   return `${buildIntentJsonInstructionBase()}${section}`;
 }
 
@@ -217,7 +218,7 @@ function normalizeIntentLikePayload(raw: unknown): unknown {
   const intents = intentsRaw.map((it) => {
     const x = (it ?? {}) as Record<string, unknown>;
     const mappedIntent = toEnumIntent(x.intent ?? x.intentType);
-    const targetIntent = x.targetIntent ?? x.intentId;
+    const targetEntryId = x.targetEntryId ?? x.targetIntent ?? x.intentId;
     return {
       intent: mappedIntent,
       ...(x.goal ? { goal: String(x.goal) } : {}),
@@ -226,8 +227,13 @@ function normalizeIntentLikePayload(raw: unknown): unknown {
       ...(typeof x.needsClarification === "boolean" ? { needsClarification: x.needsClarification } : {}),
       ...(x.clarificationQuestion ? { clarificationQuestion: String(x.clarificationQuestion) } : {}),
       ...(x.resolvedSlots && typeof x.resolvedSlots === "object" ? { resolvedSlots: x.resolvedSlots } : {}),
-      ...(x.dataQueryDomain ? { dataQueryDomain: String(x.dataQueryDomain) } : {}),
-      ...(targetIntent ? { targetIntent: String(targetIntent) } : {}),
+      ...(x.domainId ? { domainId: String(x.domainId) } : {}),
+      ...(x.segmentId
+        ? { segmentId: String(x.segmentId) }
+        : x.dataQueryDomain
+          ? { segmentId: String(x.dataQueryDomain) }
+          : {}),
+      ...(targetEntryId ? { targetEntryId: String(targetEntryId) } : {}),
       ...(Array.isArray(x.missingSlots) ? { missingSlots: x.missingSlots } : {}),
       ...(x.replySuggestion ? { replySuggestion: String(x.replySuggestion) } : {})
     };
@@ -258,8 +264,9 @@ function normalizeStructuredOutputToIntentPayload(
       ...(x.needsClarification !== null ? { needsClarification: x.needsClarification } : {}),
       ...(x.clarificationQuestion ? { clarificationQuestion: x.clarificationQuestion } : {}),
       ...(x.resolvedSlots ? { resolvedSlots: x.resolvedSlots } : {}),
-      ...(x.dataQueryDomain ? { dataQueryDomain: x.dataQueryDomain } : {}),
-      ...(x.targetIntent ? { targetIntent: x.targetIntent } : {}),
+      ...(x.domainId ? { domainId: x.domainId } : {}),
+      ...(x.segmentId ? { segmentId: x.segmentId } : {}),
+      ...(x.targetEntryId ? { targetEntryId: x.targetEntryId } : {}),
       ...(x.missingSlots.length ? { missingSlots: x.missingSlots } : {}),
       ...(x.replySuggestion ? { replySuggestion: x.replySuggestion } : {})
     })),
@@ -608,8 +615,9 @@ export async function runIntentClassifyAgent(
           intents: intent.intents.map((x) => ({
             intent: x.intent,
             executable: x.executable,
-            dataQueryDomain: x.dataQueryDomain,
-            targetIntent: x.targetIntent,
+            domainId: x.domainId,
+            segmentId: x.segmentId,
+            targetEntryId: x.targetEntryId,
             missingSlots: x.missingSlots ?? []
           })),
           needsClarification: intent.needsClarification,

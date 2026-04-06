@@ -32,7 +32,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
   const skillStepSchema = z.object({
     /** 步骤唯一标识（同一 task 内稳定即可），用于日志与执行轨迹对齐 */
     stepId: z.string(),
-    /** 技能域（如 data_query / data_analysis），用于粗粒度披露能力范围 */
+    /** 技能域（如 retrieval / analysis / qa），用于粗粒度披露能力范围 */
     skillsDomainId: z.string(),
     /** 技能分段（如 member / ecommerce），用于缩小候选能力集合 */
     skillsSegmentId: z.string().optional(),
@@ -77,15 +77,16 @@ export function buildIntentResultSchema(config: SystemConfig) {
 
   return z.object({
     /**
-     * 多意图列表，至少 1 条。同轮可并存 `data_query` + `knowledge_qa` 等；
-     * 问数执行路径只消费其中 `intent === "data_query"` 的条目（见 `getBestDataQueryIntent`）。
+     * 多意图列表，至少 1 条。同轮可并存多个子意图；
+     * 具体执行路径由编排层按当前策略选择与消费。
      */
     intents: z
       .array(
         z.object({
           /**
-           * 子意图类型。与根级 `dominantIntent` 使用同一枚举；`data_query` 时可选填
-           * `dataQueryDomain` / `targetIntent` / `resolvedSlots` / `missingSlots`。
+           * 子意图类型。与根级 `dominantIntent` 使用同一枚举。
+           * 通用上下文字段（如 `domainId` / `segmentId` / `targetEntryId` / `resolvedSlots`）
+           * 可按需要在任意子意图上提供。
            */
           intent: z.enum([
             "data_query",
@@ -105,33 +106,31 @@ export function buildIntentResultSchema(config: SystemConfig) {
           executable: z.boolean().optional(),
           /**
            * 该子意图是否缺参（模型自评）。与根级 `needsClarification` 可能不一致；
-           * 问数路由以 `missingSlots` 数组是否非空为硬条件之一。
+           * 编排层可据 `missingSlots` 判定是否先澄清。
            */
           needsClarification: z.boolean().optional(),
           /** 仅针对该子意图的追问句；全局追问优先用根级 `clarificationQuestion` */
           clarificationQuestion: z.string().optional(),
           /**
-           * 已解析槽位（键名建议 snake_case）。`data_query` 可执行时规则上应提供，
-           * 并写入 DataQuery 子图 `input.resolvedSlots`。
+           * 已解析槽位（键名建议 snake_case），可由后续任意执行节点复用。
            */
           resolvedSlots: z.record(z.string(), z.unknown()).optional(),
+          /** 业务域 id（通用上下文字段），建议对齐 system domains 或执行模块 id。 */
+          domainId: z.string().optional(),
           /**
-           * 问数业务分段 id，与 `targetIntent` 成对使用；仅对 `data_query` 有意义。
-           * 合法值由当前 `system.yaml` 的 segments（见 `listQuerySegmentIds`）决定。
+           * 业务分段 id（通用上下文字段），可与 `targetEntryId` 搭配用于路由、能力收敛与后续编排。
+           * 合法值由当前 `system.yaml` 的 business segments（见 `businessSegmentZodEnumValues`）决定。
            */
-          dataQueryDomain: businessSegmentSchema.optional(),
+          segmentId: businessSegmentSchema.optional(),
           /**
-           * 稳定能力/指南 id（与 `skills/intent` 规则、`targetIntent` 约定一致）。
-           * 缺省时问数子图可能退化为关键词或 LLM 路径。
+           * 稳定能力/入口 id（可映射到 skill/guide 或其他执行入口）。
+           * 缺省时由编排层按上下文做兜底选择。
            */
-          targetIntent: z.string().optional(),
-          /**
-           * 仍缺的槽位名列表。空或未定义表示问数条层面无缺失；
-           * `getBestDataQueryIntent` 优先选 `missingSlots` 为空的 `data_query` 项。
-           */
+          targetEntryId: z.string().optional(),
+          /** 仍缺的槽位名列表。空或未定义表示该子意图层面无缺失。 */
           missingSlots: z.array(z.string()).optional(),
           /**
-           * 非问数或单条意图时的简短回复建议。与根级 `replySuggestion` 并存时，
+           * 单条意图场景下的简短回复建议。与根级 `replySuggestion` 并存时，
            * 合成节点通常按 `dominantIntent` 走分支，不必两条同时展示。
            */
           replySuggestion: z.string().optional()
@@ -152,8 +151,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
     planningTasks: z.array(planningTaskSchema).optional(),
 
     /**
-     * 全局：是否应先向用户澄清再执行子图。为 **true** 时路由直接 `compose_answer`，
-     * 不会进入 `guide_agent` / 问数执行，即使某条 `data_query` 已齐参。
+     * 全局：是否应先向用户澄清再执行子图。为 **true** 时路由直接 `compose_answer`。
      */
     needsClarification: z.boolean(),
 
@@ -174,7 +172,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
 
     /**
      * 可选的任务级编排视图：子任务、缺参汇总、下一步动作等。
-     * - 与根级 `needsClarification` / 问数 `missingSlots` **并行存在**时，`wantsClarification`
+     * - 与根级 `needsClarification` / `missingSlots` **并行存在**时，`wantsClarification`
      *   仍可能因 `nextAction === "clarify"` 或 `missingParamsSummary` 非空而视为需澄清。
      * - 字段与 `intents[]` 不强制一致，适合作为 LLM 的「计划草稿」(debug / 用户可见预览)。
      */
@@ -249,7 +247,7 @@ let cachedIntentResultSchema: ReturnType<typeof buildIntentResultSchema> | undef
 
 /**
  * 当前系统配置下的意图结果校验 Schema。须在 `initSystemConfig` 后调用
- * {@link refreshIntentResultSchemaCache}（由 `initCore` 负责）；若尚未注入有效配置，则按 `getSystemConfig()` 空壳构建（问数域枚举退化为 `other`）。
+ * {@link refreshIntentResultSchemaCache}（由 `initCore` 负责）；若尚未注入有效配置，则按 `getSystemConfig()` 空壳构建（分段枚举退化为 `other`）。
  */
 export function getIntentResultSchema() {
   if (!cachedIntentResultSchema) {

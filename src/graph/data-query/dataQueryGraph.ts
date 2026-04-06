@@ -146,7 +146,7 @@ builder.addNode("domain_router", (state: DataQueryState) => {
   log(
     "[DataQuery]",
     "node domain_router",
-    `sqlQueries=${state.input.sqlQueries?.length ?? 0} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} structured=${Boolean(state.input.dataQueryDomain && state.input.targetIntent?.trim())}`
+    `sqlQueries=${state.input.sqlQueries?.length ?? 0} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} structured=${Boolean((state.input.segmentId || state.input.dataQueryDomain) && state.input.targetIntent?.trim())}`
   );
   if (state.input.sqlQueries?.length) {
     return {
@@ -165,10 +165,11 @@ builder.addNode("domain_router", (state: DataQueryState) => {
   }
 
   /** 第二期：意图节点下发的域 + 目标意图，优先于关键词猜意图 */
-  if (state.input.dataQueryDomain && state.input.targetIntent?.trim()) {
+  const segment = state.input.segmentId ?? state.input.dataQueryDomain;
+  if (segment && state.input.targetIntent?.trim()) {
     return {
       ...state,
-      queryDomain: state.input.dataQueryDomain,
+      queryDomain: segment,
       queryIntent: state.input.targetIntent.trim()
     };
   }
@@ -495,7 +496,7 @@ export async function runDataQueryGraph(input: DataQueryInput): Promise<DataQuer
   log(
     "[DataQuery]",
     "子图 dataQueryApp.invoke 开始",
-    `userInputLen=${input.userInput.length} sqlQueries=${input.sqlQueries?.length ?? 0} hasSqlQuery=${Boolean(input.sqlQuery?.sql?.trim())} targetIntent=${input.targetIntent ?? ""} dataQueryDomain=${input.dataQueryDomain ?? ""} resolvedSlotKeys=${input.resolvedSlots ? Object.keys(input.resolvedSlots).join(",") : ""}`
+    `userInputLen=${input.userInput.length} sqlQueries=${input.sqlQueries?.length ?? 0} hasSqlQuery=${Boolean(input.sqlQuery?.sql?.trim())} targetIntent=${input.targetIntent ?? ""} domainId=${input.domainId ?? ""} segmentId=${input.segmentId ?? input.dataQueryDomain ?? ""} resolvedSlotKeys=${input.resolvedSlots ? Object.keys(input.resolvedSlots).join(",") : ""}`
   );
   const result = await dataQueryApp.invoke({ input });
   log("[DataQuery]", "子图 dataQueryApp.invoke 结束", undefined, t0);

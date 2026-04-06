@@ -138,7 +138,7 @@ function resolveGuideMatch(
   if (phone && !slots.phone) slots.phone = phone;
   const plannedEntry =
     pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability?.id?.trim() ?? "";
-  const key = plannedEntry || dq.targetIntent?.trim() || "";
+  const key = plannedEntry || dq.targetEntryId?.trim() || "";
   if (key) {
     const hit = findGuideCapabilityByKey(key);
     if (hit?.capability) return { guide: hit.guide, capability: hit.capability };
@@ -151,7 +151,7 @@ function resolveGuideMatch(
   const guides = listGuides().filter(
     (g) =>
       g.domain === "data_query" &&
-      (!dq.dataQueryDomain || g.segment === dq.dataQueryDomain || dq.dataQueryDomain === "other")
+      (!dq.segmentId || g.segment === dq.segmentId || dq.segmentId === "other")
   );
   for (const g of guides) {
     const cap = pickBestCapability(g, state.input.userInput, slots);
@@ -199,7 +199,7 @@ export function guideAgentNode(
     log(
       "[Orchestrator]",
       "node guide_agent 无匹配 Guide",
-      `targetIntent=${dq?.targetIntent ?? ""}`,
+      `targetEntryId=${dq?.targetEntryId ?? ""}`,
       t0
     );
     return {
@@ -323,7 +323,7 @@ export function guideAgentNode(
         sqlQuery: {
           sql,
           params,
-          dbClientKey: dq.dataQueryDomain ?? "member",
+          dbClientKey: dq.segmentId ?? "member",
           label: capability.id,
           purpose: capability.id
         }

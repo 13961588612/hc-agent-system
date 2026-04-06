@@ -37,7 +37,7 @@ export async function executeDataQueryNode(
   log(
     "[Orchestrator]",
     "node execute_data_query 开始",
-    `hasSqlQueries=${Boolean(state.input.sqlQueries?.length)} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} targetIntent=${dq.targetIntent ?? ""} dataQueryDomain=${dq.dataQueryDomain ?? ""}`
+    `hasSqlQueries=${Boolean(state.input.sqlQueries?.length)} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} targetEntryId=${dq.targetEntryId ?? ""} domainId=${dq.domainId ?? ""} segmentId=${dq.segmentId ?? ""}`
   );
 
   const taskId = nanoid();
@@ -90,8 +90,15 @@ export async function executeDataQueryNode(
       }
       const plannedEntry = pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability?.id;
       if (plannedEntry?.trim()) base.targetIntent = plannedEntry.trim();
-      else if (dq.targetIntent?.trim()) base.targetIntent = dq.targetIntent.trim();
-      if (dq.dataQueryDomain) base.dataQueryDomain = dq.dataQueryDomain;
+      else if (dq.targetEntryId?.trim()) base.targetIntent = dq.targetEntryId.trim();
+      const effectiveDomainId = dq.domainId?.trim() || pt?.systemModuleId?.trim();
+      const effectiveSegmentId = dq.segmentId?.trim();
+      if (effectiveDomainId) base.domainId = effectiveDomainId;
+      if (effectiveSegmentId) {
+        base.segmentId = effectiveSegmentId;
+        // 兼容旧链路
+        base.dataQueryDomain = effectiveSegmentId;
+      }
       const plannedSql = pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability;
       if (plannedSql && !base.targetIntent) {
         base.targetIntent = plannedSql.id;

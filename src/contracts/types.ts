@@ -138,8 +138,13 @@ export interface DataQueryInput {
   };
   /** 意图节点解析槽位，子图优先用于路由与演示 SQL 参数 */
   resolvedSlots?: Record<string, unknown>;
+  /** 上一阶段透传的业务域 id（建议对齐 system domains / 模块 id） */
+  domainId?: string;
+  /** 上一阶段透传的业务分段 id（建议对齐 system segments） */
+  segmentId?: QueryDomain;
   /** 与 `dataQueryDomain` 成对，用于子图 domain_router（第二期） */
   targetIntent?: string;
+  /** 兼容旧字段：等价于 `segmentId` */
   dataQueryDomain?: QueryDomain;
 }
 

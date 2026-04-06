@@ -58,9 +58,13 @@ export const DataQueryInputSchema = z.object({
   planningTask: DataQueryPlanningTaskSchema.optional(),
   /** 意图节点解析的槽位，子图优先据此路由与绑参 */
   resolvedSlots: z.record(z.string(), z.unknown()).optional(),
+  /** 上一阶段透传的业务域 id（建议对齐 system domains / 模块 id） */
+  domainId: z.string().optional(),
+  /** 上一阶段透传的业务分段 id（建议对齐 system segments） */
+  segmentId: z.string().optional(),
   /** 子图路由意图 id，与 `dataQueryDomain` 成对使用（来自 IntentResult.targetIntent） */
   targetIntent: z.string().optional(),
-  /** 子图路由域：segment id，与 `config/system.yaml` 的 segments（通常 business）一致 */
+  /** 兼容旧字段：等价于 `segmentId` */
   dataQueryDomain: z.string().optional()
 });
 
