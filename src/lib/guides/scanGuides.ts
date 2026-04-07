@@ -1,6 +1,7 @@
-import { readFile, readdir } from "node:fs/promises";
+import { access, constants, readFile, readdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { getRuntimeContext } from "../../config/runtimeContext.js";
 import { clearGuides, getGuide, registerGuide } from "./guideRegistry.js";
 import {
   parseCapabilitiesBlock,
@@ -11,11 +12,21 @@ import type { SkillGuideEntry } from "./types.js";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
 
-/** 默认：`<cwd>/skills/guides`；可通过环境变量 `GUIDES_DIR` 覆盖 */
+/**
+ * 默认：`<workspaceDir>/skills/guides`，`workspaceDir` 见 `getRuntimeContext()`（启动时 `process.cwd()`）。
+ * 可通过环境变量 `GUIDES_DIR` 覆盖（建议绝对路径；相对路径则相对当前工作目录解析）。
+ */
 export function defaultGuidesDir(): string {
   const fromEnv = process.env.GUIDES_DIR?.trim();
   if (fromEnv) return fromEnv;
-  return join(process.cwd(), "skills", "guides");
+  const { workspaceDir } = getRuntimeContext();
+  return join(workspaceDir, "skills", "guides");
+}
+
+function rootSkillTemplateIdFromMeta(o: Record<string, unknown>): string | undefined {
+  if (typeof o.skillTemplateId === "string") return o.skillTemplateId.trim();
+  if (typeof o.queryTemplateId === "string") return o.queryTemplateId.trim();
+  return undefined;
 }
 
 async function collectMdFiles(dir: string): Promise<string[]> {
@@ -55,8 +66,7 @@ function parseGuideFile(content: string, filePath: string): SkillGuideEntry | nu
   const title = typeof o.title === "string" ? o.title : "";
   if (!id || !title) return null;
 
-  const queryTemplateId =
-    typeof o.queryTemplateId === "string" ? o.queryTemplateId.trim() : undefined;
+  const skillTemplateId = rootSkillTemplateIdFromMeta(o);
   const description =
     typeof o.description === "string" ? o.description.trim() : undefined;
   const params = parseParamsBlock(o.params);
@@ -76,7 +86,7 @@ function parseGuideFile(content: string, filePath: string): SkillGuideEntry | nu
     tags: Array.isArray(o.tags)
       ? o.tags.filter((x): x is string => typeof x === "string")
       : undefined,
-    ...(queryTemplateId ? { queryTemplateId } : {}),
+    ...(skillTemplateId ? { skillTemplateId } : {}),
     ...(params ? { params } : {}),
     ...(execution ? { execution } : {}),
     ...(capabilities ? { capabilities } : {}),
@@ -95,7 +105,19 @@ export async function discoverAndRegisterGuides(
   clearGuides();
   const errors: string[] = [];
   let discovered = 0;
+
+  try {
+    await access(baseDir, constants.R_OK);
+  } catch {
+    errors.push(
+      `指南目录不存在或不可读: ${baseDir}（可设置 GUIDES_DIR，或从含 skills/guides 的项目根目录启动以使 workspaceDir 正确）`
+    );
+  }
+
   const files = await collectMdFiles(baseDir);
+  if (files.length === 0 && errors.length === 0) {
+    errors.push(`指南目录下未找到任何 .md: ${baseDir}`);
+  }
   for (const file of files) {
     let raw: string;
     try {

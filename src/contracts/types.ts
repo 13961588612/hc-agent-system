@@ -133,6 +133,7 @@ export interface DataQueryInput {
       providedParams?: Record<string, unknown>;
       missingParams?: string[];
       executable?: boolean;
+      dbClientKey?: string;
       expectedOutput?: "table" | "object" | "summary";
     }>;
   };

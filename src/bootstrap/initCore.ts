@@ -1,4 +1,4 @@
-import { createDbClientManager } from "../lib/infra/dbClientFactory.js";
+import { createDbClientManager } from "../lib/infra/dbClientManager.js";
 import { loadEnvConfig, type EnvConfig } from "../config/envConfig.js";
 import { loadDatabasesConfig } from "../config/databasesConfig.js";
 import {
@@ -7,9 +7,10 @@ import {
   loadSystemConfigFromFile
 } from "../config/systemConfig.js";
 import { refreshIntentResultSchemaCache } from "../contracts/intentSchemas.js";
-import { discoverAndRegisterGuides } from "../lib/guides/scanGuides.js";
+import { getRuntimeContext } from "../config/runtimeContext.js";
+import { defaultGuidesDir, discoverAndRegisterGuides } from "../lib/guides/scanGuides.js";
 import { discoverAndRegisterIntentRules } from "../intent/scanIntentRules.js";
-import { getDefaultDbClientManager } from "../lib/infra/dbClientManager.js";
+import type { DatabasesConfig } from "../config/databasesConfig.js";
 
 export interface InitCoreResult {
   env: EnvConfig;
@@ -21,6 +22,12 @@ export interface InitCoreResult {
  */
 export async function initCore(): Promise<InitCoreResult> {
   const env = loadEnvConfig();
+
+  const rt = getRuntimeContext();
+  console.log(
+    `[Runtime] workspaceDir=${rt.workspaceDir}` +
+      (rt.gitRootDir ? ` gitRootDir=${rt.gitRootDir}` : "")
+  );
 
   const systemLoaded = await loadSystemConfigFromFile();
   initSystemConfig(systemLoaded);
@@ -36,12 +43,19 @@ export async function initCore(): Promise<InitCoreResult> {
   }
 
   const dbConfig = await loadDatabasesConfig();
-  const dbManager = dbConfig
-    ? createDbClientManager(dbConfig)
-    : getDefaultDbClientManager();
+  const effectiveDbConfig: DatabasesConfig =
+    dbConfig ??
+    {
+      connections: {
+        default: { driver: "dummy" }
+      }
+    };
+  const dbManager = createDbClientManager(effectiveDbConfig);
   console.log(`[Db] 已注册连接: ${dbManager.listNames().join(", ")}`);
 
-  const guidesResult = await discoverAndRegisterGuides();
+  const guidesDir = defaultGuidesDir();
+  console.log(`[Guides] 扫描目录: ${guidesDir}`);
+  const guidesResult = await discoverAndRegisterGuides(guidesDir);
   if (guidesResult.errors.length > 0) {
     console.warn("[Guides] 扫描提示:", guidesResult.errors);
   }

@@ -24,6 +24,10 @@ export interface SkillContext {
 }
 
 export type skillType = "skill" | "guide" | "playbook";
+export interface SkillCapabilityBrief {
+  id: string;
+  description?: string;
+}
 
 /**
  * 可披露元数据（L1）：用于 Registry 检索、get-skills-info、向量索引等。
@@ -46,7 +50,7 @@ export interface SkillMeta<TInput = unknown, TOutput = unknown> {
    * 能力标签，用于**域内过滤、路由与粗粒度匹配**（非全文检索）。
    * 例：`["sql","database"]`、`["member","points"]`。
    */
-  capabilities?: string[];
+  capabilities?: SkillCapabilityBrief[] ;
   /**
    * **示例问法/指令**，用于向量检索、相似问召回或与用户问题做匹配；可多条。
    * 例：`["查我最近订单","会员积分明细"]`。

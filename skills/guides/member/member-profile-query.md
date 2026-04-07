@@ -110,8 +110,8 @@ capabilities:
 
 | 项 | 内容 |
 |----|------|
-| **能力 id** | `member.profile.by_user_id` |
-| **数据源** | `member`（`bfcrm8`） |
+| **capability_id** | `member.profile.by_user_id` |
+| **db_client_name** | `member`（`bfcrm8`） |
 | **关联技能** | `sql_query` |
 | **触发** | 用户想查 **会员资料 / 档案 / 个人信息 / 持卡信息** 等（说法同上文「适用场景」） |
 | **选用条件** | 上游已解析出 **会员内部编号**（系统侧会员 id，非卡号、非手机号），并填入槽位 **`vipIds`** |
@@ -162,8 +162,8 @@ WHERE a.status <> -1
 
 | 项 | 内容 |
 |----|------|
-| **能力 id** | `member.profile.by_member_card_no` |
-| **数据源** | `member`（`bfcrm8`） |
+| **capability_id** | `member.profile.by_member_card_no` |
+| **db_client_name** | `member`（`bfcrm8`） |
 | **关联技能** | `sql_query` |
 | **触发** | 用户想通过 **会员卡号**（实体卡/电子卡上的号码）查该会员的档案资料 |
 | **选用条件** | 槽位 **`memberCardNos`** 已就绪（每条一个卡号） |
@@ -212,8 +212,8 @@ WHERE a.status <> -1
 
 | 项 | 内容 |
 |----|------|
-| **能力 id** | `member.profile.by_mobile` |
-| **数据源** | `member`（`bfcrm8`） |
+| **capability_id** | `member.profile.by_mobile` |
+| **db_client_name** | `member`（`bfcrm8`） |
 | **关联技能** | `sql_query` |
 | **触发** | 用户提供 **手机号码**，想查对应 **是谁、会员档案、持卡信息** |
 | **选用条件** | 槽位 **`mobiles`** 已就绪（每条一个手机号，建议归一化后再绑定） |
@@ -266,8 +266,8 @@ WHERE a.status <> -1
 
 | 项 | 内容 |
 |----|------|
-| **能力 id** | `member.profile.change_log` |
-| **数据源** | `member`（`bfcrm8`） |
+| **capability_id** | `member.profile.change_log` |
+| **db_client_name** | `member`（`bfcrm8`） |
 | **关联技能** | `sql_query` |
 | **触发** | **优先**：会员 **生日改了几次、生日变更记录、档案变更历史、什么时候改过生日**；**兼用**：用户笼统说查档案，但澄清后确认为要 **历史变更** 而非当前快照（与上文「快照 vs 变更记录」一致） |
 | **选用条件** | 已掌握 **会员内部编号** 列表，填入 **`vipIds`** |

@@ -47,9 +47,9 @@ function effectiveDemoUserId(input: DataQueryInput): string {
  * 按连接键解析客户端；若无则回退 `default`，再回退 Dummy。
  */
 function resolveDbClientByKey(key: string): DbClient {
-  const primary = dbClientManager.tryGet(key);
+  const primary = dbClientManager?.tryGet(key);
   if (primary) return primary;
-  const fallback = dbClientManager.tryGet("default");
+  const fallback = dbClientManager?.tryGet("default");
   if (fallback) return fallback;
   return new DummyDbClient();
 }
@@ -71,7 +71,7 @@ async function runSqlQuerySkillWithOptionalFallback(
     return await db.query({ sql, params });
   } catch (err) {
     if (dbKey !== MEMBER_DB_KEY) throw err;
-    const fb = dbClientManager.tryGet("default");
+    const fb = dbClientManager?.tryGet("default");
     if (!fb || fb === db) throw err;
     console.warn(
       `[DataQuery] 数据源 "${dbKey}" 执行失败，回退 default：`,
@@ -81,17 +81,23 @@ async function runSqlQuerySkillWithOptionalFallback(
   }
 }
 
-function pickSelectedSkillIds(input: DataQueryInput): string[] {
+function pickSelectedSkillPlans(
+  input: DataQueryInput
+): Array<{ skillId: string; dbClientKey?: string }> {
   const steps = input.planningTask?.skillSteps ?? [];
-  const ids: string[] = [];
+  const plans: Array<{ skillId: string; dbClientKey?: string }> = [];
   for (const s of steps) {
     if (s.executable === false) continue;
     const id = s.selectedCapability?.id?.trim();
-    if (id) ids.push(id);
+    if (!id) continue;
+    plans.push({
+      skillId: id,
+      dbClientKey: s.dbClientKey?.trim() || undefined
+    });
   }
-  if (ids.length > 0) return ids;
+  if (plans.length > 0) return plans;
   const fallback = input.targetIntent?.trim();
-  return fallback ? [fallback] : [];
+  return fallback ? [{ skillId: fallback }] : [];
 }
 
 function extractJsonObject(text: string): string {
@@ -109,6 +115,7 @@ async function buildSqlBySkillWithLlm(input: {
   resolvedSlots?: Record<string, unknown>;
   skillId: string;
   skillDetailJson: string;
+  preferredDbClientKey?: string;
 }): Promise<SqlSkillInput> {
   const llm = getModel();
   const prompt = [
@@ -118,7 +125,8 @@ async function buildSqlBySkillWithLlm(input: {
     "JSON schema:",
     '{ "sql": "string", "params": ["any"], "dbClientKey": "string", "purpose": "string" }',
     "- 必须使用参数化 SQL，禁止拼接用户输入到 SQL 文本。",
-    "- dbClientKey 缺省用 member 或 default（二选一）。",
+    "- dbClientKey 不能为空。",
+    `- 若已给定 preferredDbClientKey，请优先使用：${input.preferredDbClientKey ?? "（未指定）"}`,
     "- label 与 purpose 默认使用 skillId。",
     "",
     `skillId: ${input.skillId}`,
@@ -135,7 +143,10 @@ async function buildSqlBySkillWithLlm(input: {
   return {
     sql,
     params: Array.isArray(parsed.params) ? parsed.params : [],
-    dbClientKey: String(parsed.dbClientKey ?? "").trim() || "member",
+    dbClientKey:
+      String(parsed.dbClientKey ?? "").trim() ||
+      input.preferredDbClientKey?.trim() ||
+      "member",
     purpose: String(parsed.purpose ?? "").trim() || input.skillId
   };
 }
@@ -197,9 +208,13 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
     `queryDomain=${state.queryDomain ?? ""} queryIntent=${state.queryIntent ?? ""}`
   );
   const demoDb = resolveDbClientByKey("default");
-  const selectedSkillIds = pickSelectedSkillIds(state.input).slice(0, MAX_SQL_QUERIES);
+  const selectedSkillPlans = pickSelectedSkillPlans(state.input).slice(0, MAX_SQL_QUERIES);
 
-  if (!state.input.sqlQueries?.length && !state.input.sqlQuery?.sql?.trim() && selectedSkillIds.length > 0) {
+  if (
+    !state.input.sqlQueries?.length &&
+    !state.input.sqlQuery?.sql?.trim() &&
+    selectedSkillPlans.length > 0
+  ) {
     try {
       const tPlan = Date.now();
       const tables: Array<{
@@ -210,15 +225,17 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
       const steps: Array<{ kind: "sql"; id?: string; sql: string; params?: unknown[] }> = [];
       const stepErrors: Record<string, string> = {};
 
-      for (let i = 0; i < selectedSkillIds.length; i++) {
-        const skillId = selectedSkillIds[i]!;
+      for (let i = 0; i < selectedSkillPlans.length; i++) {
+        const plan = selectedSkillPlans[i]!;
+        const skillId = plan.skillId;
         try {
           const skillDetailJson = await runInvokeSkillTool(skillId);
           const sqlQueryInput = await buildSqlBySkillWithLlm({
             userInput: state.input.userInput,
             resolvedSlots: state.input.resolvedSlots,
             skillId,
-            skillDetailJson
+            skillDetailJson,
+            preferredDbClientKey: plan.dbClientKey
           });
           const sqlResultText = await runSqlQueryTool(sqlQueryInput);
           const sqlResult = JSON.parse(sqlResultText) as SqlQueryResult;
@@ -236,7 +253,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
           log(
             "[DataQuery]",
             "按 planningTask/skillId 执行单步完成",
-            `step=${i + 1}/${selectedSkillIds.length} skillId=${skillId} rowCount=${sqlResult.rowCount}`
+            `step=${i + 1}/${selectedSkillPlans.length} skillId=${skillId} rowCount=${sqlResult.rowCount}`
           );
         } catch (e) {
           stepErrors[skillId] = e instanceof Error ? e.message : String(e);
@@ -248,7 +265,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
       log(
         "[DataQuery]",
         "planningTask skill 链路完成",
-        `steps=${selectedSkillIds.length} success=${tables.length} failed=${Object.keys(stepErrors).length}`,
+        `steps=${selectedSkillPlans.length} success=${tables.length} failed=${Object.keys(stepErrors).length}`,
         tPlan
       );
       if (!hasTables && hasErr) {
@@ -257,7 +274,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
           executionPlan: { steps },
           result: {
             domain: state.queryDomain ?? defaultQueryDomainTag(),
-            intent: selectedSkillIds[0] ?? "unknown",
+            intent: selectedSkillPlans[0]?.skillId ?? "unknown",
             dataType: "table" as const,
             meta: {
               source: "planning_task_skill_chain",
@@ -273,7 +290,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
         executionPlan: { steps },
         result: {
           domain: state.queryDomain ?? defaultQueryDomainTag(),
-          intent: selectedSkillIds[0] ?? "unknown",
+          intent: selectedSkillPlans[0]?.skillId ?? "unknown",
           dataType: tables.length > 1 ? ("tables" as const) : ("table" as const),
           meta: {
             source: "planning_task_skill_chain",

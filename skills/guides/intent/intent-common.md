@@ -26,8 +26,16 @@ tags:
 #### 第二步：意图识别（多意图并行）
 - 生成 `intents[]`，允许多意图并存，不强制压缩成单意图。
 - 每条意图都尽量给：`goal`、`confidence`、`executable`、`resolvedSlots`、`missingSlots`。
+- 本阶段必须优先调用 tool 做能力探测，不可只靠记忆猜测：
+  - 先调用 `list_skills_by_domain_segment` 获取候选能力清单（可按最可能的 `domainId/segmentId` 多次探测）。
+  - 若候选仍不清晰，再调用 `invoke_skill` 获取关键能力细节（入参、约束、适用条件）后再落意图。
+  - 对相关候选能力应逐个查看详情，不漏关键 skill；再进行意图拆解与计划。
+- 输出中的 `skillId` / `selectedCapability.id` 等标识必须来自已查询到的 skill 详情，禁止凭空捏造。
+- `intents[].targetEntryId`、`domainId`、`segmentId` 要与 tool 返回的能力上下文保持一致；不确定时降低置信度并走澄清。
+
 
 #### 第三步：上下文锚点补齐（domain + segment + entry）
+- 意图拆分应按 `system-module` 进行（对应 `planningTasks[].systemModuleId`）。
 - 对可执行或接近可执行的意图，补齐：
   - `domainId`
   - `segmentId`
@@ -37,6 +45,12 @@ tags:
 #### 第四步：规划拆分（planningTasks）
 - 输出 `planningTasks[]`，每个 task 对应一个可执行目标。
 - task 内通过 `skillSteps[]` 描述：候选能力、选中能力、参数状态、可执行性。
+- `skillSteps[].disclosedSkillIds` 必须来自本轮 tool 查询结果；禁止凭空编造能力 id。
+- `skillSteps[].selectedCapability` 必须基于已披露候选收敛得到；若未完成工具核验，不应标记 `executable=true`。
+- 若可判断数据源，填写 `skillSteps[].dbClientKey`（如 `member`/`default`）；无法判断时可留空由执行层兜底。
+- 规划时必须体现步骤先后关系：当某个 capability 缺少参数，但这些参数可由另一个 capability 的结果补齐时，应先安排“前置 capability”执行，再执行当前 capability。
+- 对依赖上游结果的 step：当前轮应将其标记为 `executable=false`，并在 `missingParams` 中明确缺失项；待前置 step 完成后再切换为可执行。
+- `skillSteps[]` 的顺序应与实际执行顺序一致：先“产出依赖参数”的步骤，后“消费依赖参数”的步骤。
 
 #### 第五步：执行门闸判定
 - 若任一关键任务缺参：`planPhase = "blocked"` 且 `needsClarification = true`。
@@ -44,7 +58,7 @@ tags:
 
 #### 第六步：生成全局回答控制字段
 - 填充 `replyLocale`、`clarificationQuestion`、`replySuggestion`。
-- 用 `taskPlan.nextAction` 给出本轮下一动作：`execute` 或 `clarify`。
+- 用 `planPhase`（`draft` / `blocked` / `ready`）与 `needsClarification` 表达本轮是否先澄清、是否可执行；`planningTasks[].executable` 与 `skillSteps[].executable` 与之一致。
 
 ---
 
@@ -62,12 +76,13 @@ tags:
 - `taskId`, `systemModuleId`, `goal`: 任务骨架。
 - `skillSteps[]`: 从“候选能力”到“选中能力”的收敛过程。
 - `requiredParams` / `providedParams` / `missingParams`: 参数完整性。
+- `dbClientKey`: 当前 step 推荐的数据源连接键（如 `member` / `default`），供执行节点透传给 SQL 执行器。
 - `expectedOutput`: 预期产出形态（`table|object|summary`）。
 
 #### 2.3 全局控制层
 - `planPhase`: `draft|blocked|ready`。
 - `needsClarification` + `clarificationQuestion`: 本轮是否先追问。
-- `taskPlan.nextAction`: 与当前状态一致（`execute` 或 `clarify`）。
+- 缺参汇总落在 `planningTasks[].missingSlots` 与 `skillSteps[].missingParams`，合成侧据此生成澄清话术。
 
 ---
 
@@ -76,7 +91,7 @@ tags:
 #### 3.1 多意图场景
 - 不要强制单意图。
 - 可执行任务与缺参任务可并存，均保留在结果里。
-- `taskPlan.missingParamsSummary` 需汇总缺参并去重。
+- 多任务缺参时，各 `planningTasks` 上的 `missingSlots` / `skillSteps[].missingParams` 应去重且可汇总到根级 `clarificationQuestion`（可选）。
 
 #### 3.2 能力披露与收敛场景
 - 先给 `disclosedSkillIds`（候选），再给 `selectedCapability`（收敛）。
@@ -97,6 +112,7 @@ tags:
 #### 4.1 输出格式硬约束
 - 只返回 **一个 JSON 对象**。
 - 不输出 markdown / 代码块 / 解释文字。
+- 只做意图识别与任务拆解，不执行真实业务查询（尤其不要在本阶段执行 SQL）。
 - 必须可通过 `src/contracts/intentSchemas.ts` 的 `IntentResultSchema` 校验。
 
 #### 4.2 最低合格标准
@@ -104,7 +120,7 @@ tags:
 - `planningTasks.length >= 1`
 - `planPhase` 与 `needsClarification` 语义一致
 - 至少一条意图包含可传递上下文：`domainId + segmentId + targetEntryId`（可执行场景）
-- `taskPlan.nextAction` 与当前状态一致
+- `planningTasks` 内缺参与 `planPhase` / `needsClarification` 一致
 
 ---
 
@@ -159,6 +175,7 @@ tags:
           },
           "missingParams": [],
           "executable": true,
+          "dbClientKey": "member",
           "expectedOutput": "table"
         }
       ],
@@ -166,41 +183,60 @@ tags:
     }
   ],
   "needsClarification": false,
-  "confidence": 0.87,
-  "taskPlan": {
-    "domainSegmentRanking": [
-      {
-        "domain": "data_query",
-        "segment": "member",
-        "score": 0.87,
-        "reason": "命中会员积分与流水关键词，且槽位可用"
-      }
-    ],
-    "subTasks": [
-      {
-        "taskId": "task-1",
-        "goal": "完成会员积分查询",
-        "selectedCapability": {
-          "kind": "guide",
-          "id": "member.points_account.ledger_recent"
-        },
-        "executable": true,
-        "requiredParams": ["vipIds"],
-        "providedParams": {
-          "vipIds": ["10001"]
-        },
-        "missingParams": [],
-        "plan": [
-          "读取能力定义",
-          "组装参数化 SQL",
-          "调用执行节点并返回结果"
-        ],
-        "expectedOutput": "table"
-      }
-    ],
-    "missingParamsSummary": [],
-    "nextAction": "execute",
-    "finalSummary": "参数齐全，可直接执行。"
-  }
+  "confidence": 0.87
 }
 ```
+
+### 6) 两步依赖链示例（先产参，再查询）
+
+当后置能力依赖前置能力产出的参数时，`skillSteps` 应按执行顺序排列，并显式标注可执行性：
+
+```json
+{
+  "planPhase": "ready",
+  "planningTasks": [
+    {
+      "taskId": "task-lookup-and-query",
+      "systemModuleId": "data_query",
+      "goal": "先定位会员，再查询会员档案",
+      "executable": true,
+      "skillSteps": [
+        {
+          "stepId": "step-1",
+          "skillsDomainId": "data_query",
+          "skillsSegmentId": "member",
+          "selectedCapability": {
+            "kind": "guide",
+            "id": "member.lookup.by_phone"
+          },
+          "requiredParams": ["phone"],
+          "providedParams": { "phone": "13800000000" },
+          "missingParams": [],
+          "executable": true,
+          "expectedOutput": "object"
+        },
+        {
+          "stepId": "step-2",
+          "skillsDomainId": "data_query",
+          "skillsSegmentId": "member",
+          "selectedCapability": {
+            "kind": "guide",
+            "id": "member.profile.by_user_id"
+          },
+          "requiredParams": ["vipIds"],
+          "providedParams": {},
+          "missingParams": ["vipIds"],
+          "executable": false,
+          "dbClientKey": "member",
+          "expectedOutput": "table"
+        }
+      ]
+    }
+  ],
+  "needsClarification": false
+}
+```
+
+说明：
+- `step-2` 当前不可执行是因为缺少 `vipIds`；该参数由 `step-1` 产出后再补齐。
+- 当上游已产出并写回 `providedParams.vipIds` 后，应把 `step-2.executable` 更新为 `true` 再执行。

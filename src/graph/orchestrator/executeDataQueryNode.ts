@@ -37,7 +37,7 @@ export async function executeDataQueryNode(
   log(
     "[Orchestrator]",
     "node execute_data_query 开始",
-    `hasSqlQueries=${Boolean(state.input.sqlQueries?.length)} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} targetEntryId=${dq.targetEntryId ?? ""} domainId=${dq.domainId ?? ""} segmentId=${dq.segmentId ?? ""}`
+    `hasSqlQueries=${Boolean(state.input.sqlQueries?.length)} hasSqlQuery=${Boolean(state.input.sqlQuery?.sql?.trim())} domainId=${dq.domainId ?? ""} segmentId=${dq.segmentId ?? ""}`
   );
 
   const taskId = nanoid();
@@ -76,6 +76,7 @@ export async function executeDataQueryNode(
             providedParams: s.providedParams,
             missingParams: s.missingParams,
             executable: s.executable,
+            dbClientKey: s.dbClientKey,
             expectedOutput: s.expectedOutput
           }))
         };
@@ -90,7 +91,6 @@ export async function executeDataQueryNode(
       }
       const plannedEntry = pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability?.id;
       if (plannedEntry?.trim()) base.targetIntent = plannedEntry.trim();
-      else if (dq.targetEntryId?.trim()) base.targetIntent = dq.targetEntryId.trim();
       const effectiveDomainId = dq.domainId?.trim() || pt?.systemModuleId?.trim();
       const effectiveSegmentId = dq.segmentId?.trim();
       if (effectiveDomainId) base.domainId = effectiveDomainId;

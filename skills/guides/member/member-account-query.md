@@ -94,8 +94,8 @@ capabilities:
 
 | 项 | 内容 |
 |----|------|
-| **能力 id** | `member.points_account.by_vip_id` |
-| **数据源** | `member`（`bfcrm8`） |
+| **capability_id** | `member.points_account.by_vip_id` |
+| **db_client_name** | `member`（`bfcrm8`） |
 | **关联技能** | `sql_query` |
 | **触发** | 已解析 **会员编号 `hyid`**，查**积分账户快照**（当前/可用/冻结等，以实际表为准） |
 

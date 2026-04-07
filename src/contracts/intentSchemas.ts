@@ -12,12 +12,12 @@ import {
  *
  * 1. **`intents[]`**：多意图列表，每条描述一个子意图及其槽位、可执行性与追问信息。
  * 2. **根级字段**（`needsClarification`、`clarificationQuestion` 等）：用于全局澄清与回复控制。
- * 3. **`planningTasks` / `taskPlan`（可选）**：任务拆解、能力选择、缺参汇总与执行预览。
+ * 3. **`planningTasks`（可选）**：任务拆解、能力选择（`skillSteps`）、缺参与可执行性；合成与路由以此为主。
  *
  * ## 一致性建议
  *
  * - `needsClarification` 与 `clarificationQuestion` 语义保持一致。
- * - `planningTasks[].missingSlots`、`taskPlan.missingParamsSummary` 与 `nextAction` 保持一致。
+ * - `planPhase`、`needsClarification` 与 `planningTasks[]` 内缺参（`missingSlots` / `skillSteps[].missingParams`）语义一致。
  * - `confidence`、`replySuggestion` 在根级与子意图可并存，建议避免语义冲突。
  *
  * 注：Schema 主要负责结构校验，跨字段语义一致性由调用方与编排逻辑共同保证。
@@ -49,6 +49,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
         id: z.string()
       })
       .optional(),
+
     /** 该步骤要求的参数名列表（用于缺参判定） */
     requiredParams: z.array(z.string()).optional(),
     /** 当前已提供参数（可来自用户输入、上下文、槽位抽取） */
@@ -57,6 +58,8 @@ export function buildIntentResultSchema(config: SystemConfig) {
     missingParams: z.array(z.string()).optional(),
     /** 该步骤是否可直接执行（模型自评 + 参数判定结果） */
     executable: z.boolean().optional(),
+    /** 本步骤建议使用的数据库连接键（传递给 sql_query/dbClientManager，如 member/default） */
+    dbClientKey: z.string().optional(),
     /** 预期输出形态，供后续节点做展示与衔接 */
     expectedOutput: outputTypeSchema.optional(),
     /** 该步骤完成后的后续动作（写产物、回包、调用子 agent 等） */
@@ -95,7 +98,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
             "chitchat",
             "unknown"
           ]),
-          /** 该子意图的自然语言目标，便于日志与 taskPlan 对齐 */
+          /** 该子意图的自然语言目标，便于日志与 planningTasks 对齐 */
           goal: z.string().optional(),
           /** 模型对该子意图的置信度 0～1；与根级 `confidence` 独立 */
           confidence: z.number().optional(),
@@ -122,11 +125,6 @@ export function buildIntentResultSchema(config: SystemConfig) {
            * 合法值由当前 `system.yaml` 的 business segments（见 `businessSegmentZodEnumValues`）决定。
            */
           segmentId: businessSegmentSchema.optional(),
-          /**
-           * 稳定能力/入口 id（可映射到 skill/guide 或其他执行入口）。
-           * 缺省时由编排层按上下文做兜底选择。
-           */
-          targetEntryId: z.string().optional(),
           /** 仍缺的槽位名列表。空或未定义表示该子意图层面无缺失。 */
           missingSlots: z.array(z.string()).optional(),
           /**
@@ -170,76 +168,6 @@ export function buildIntentResultSchema(config: SystemConfig) {
      */
     replySuggestion: z.string().optional(),
 
-    /**
-     * 可选的任务级编排视图：子任务、缺参汇总、下一步动作等。
-     * - 与根级 `needsClarification` / `missingSlots` **并行存在**时，`wantsClarification`
-     *   仍可能因 `nextAction === "clarify"` 或 `missingParamsSummary` 非空而视为需澄清。
-     * - 字段与 `intents[]` 不强制一致，适合作为 LLM 的「计划草稿」(debug / 用户可见预览)。
-     */
-    taskPlan: z
-      .object({
-        /**
-         * domain + segment 候选及排序理由；不参与当前图硬路由，供分析与后续扩展。
-         */
-        domainSegmentRanking: z
-          .array(
-            z.object({
-              domain: z.string(),
-              segment: z.string(),
-              score: z.number().optional(),
-              reason: z.string().optional()
-            })
-          )
-          .optional(),
-
-        /**
-         * 子任务列表。`executable` 与 `missingParams` 由模型填写，**不与** `intents[]` 自动对齐；
-         * `composeAnswerNode` 在 `nextAction === "execute"` 时用其生成执行预览文案。
-         */
-        subTasks: z
-          .array(
-            z.object({
-              taskId: z.string(),
-              goal: z.string(),
-              systemModuleId: z.string().optional(),
-              /** 计划使用的技能或指南入口；`kind` 与仓库内 skill/guide id 对应 */
-              selectedCapability: z
-                .object({
-                  kind: z.enum(["skill", "guide"]),
-                  id: z.string()
-                })
-                .optional(),
-              /**
-               * 该子任务是否可执行。与 `intents[].executable` 含义平行，无交叉校验。
-               */
-              executable: z.boolean(),
-              requiredParams: z.array(z.string()).optional(),
-              providedParams: z.record(z.string(), z.unknown()).optional(),
-              missingParams: z.array(z.string()).optional(),
-              /** 自然语言或步骤标签式的执行计划，仅作说明 */
-              plan: z.array(z.string()).optional(),
-              /** 预期产出形态，不影响当前子图分支 */
-              expectedOutput: outputTypeSchema.optional(),
-              followUpActions: z.array(followUpActionSchema).optional()
-            })
-          )
-          .optional(),
-
-        /**
-         * 缺参汇总（短句或参数名列表类字符串）。非空时 `wantsClarification` 可为 true，
-         * 即使根级 `needsClarification === false`。
-         */
-        missingParamsSummary: z.array(z.string()).optional(),
-
-        /**
-         * 计划下一步：`clarify` 与 `execute` 可与根级澄清标志交叉——合成侧会综合判断。
-         */
-        nextAction: z.enum(["execute", "clarify"]).optional(),
-
-        /** 对整个 taskPlan 的总结句，可作澄清兜底文案（见 `planClarificationMessage`） */
-        finalSummary: z.string().optional()
-      })
-      .optional()
   });
 }
 

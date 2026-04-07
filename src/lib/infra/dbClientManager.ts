@@ -1,5 +1,7 @@
+import { DatabaseConnectionConfig, DatabasesConfig } from "../../config/databasesConfig.js";
 import type { DbClient } from "./dbClient.js";
 import { DummyDbClient } from "./dbClient.js";
+import { createDbClientForConnection } from "./dbClientFactory.js";
 
 /**
  * 按名称管理多个 {@link DbClient}（多数据源 / 多租户 / 读写分离等）。
@@ -41,12 +43,24 @@ export class DbClientManager {
   }
 }
 
-export const dbClientManager = new DbClientManager();
+export let dbClientManager: DbClientManager | null = null;
 
-dbClientManager.register("default", new DummyDbClient());
 /**
  * 带 `default` 键的 {@link DummyDbClient}，与阶段一 Demo 行为一致。
  */
 export function getDefaultDbClientManager(): DbClientManager {
+  if (!dbClientManager) {
+    throw new Error("DbClientManager not initialized");
+  }
   return dbClientManager;
+}
+
+
+export function createDbClientManager(config: DatabasesConfig): DbClientManager {
+  const m = new DbClientManager();
+  for (const [id, conn] of Object.entries(config.connections)) {
+    m.register(id, createDbClientForConnection(id, conn as DatabaseConnectionConfig));
+  }
+  dbClientManager = m;
+  return m;
 }

@@ -7,35 +7,52 @@ import {
   getDominantIntentFromList
 } from "./intentSelectors.js";
 
+type IntentResultNonNull = NonNullable<OrchestratorState["intentResult"]>;
+
 /** 非澄清类回复：清空追问 streak */
 const clearedClarification = {
   clarificationRound: 0,
   lastClarificationAtMs: 0
 } as const;
 
+function collectMissingParamsFromSkillSteps(ir: IntentResultNonNull): string[] {
+  const out: string[] = [];
+  for (const t of ir.planningTasks ?? []) {
+    for (const s of t.skillSteps ?? []) {
+      for (const m of s.missingParams ?? []) out.push(m);
+    }
+  }
+  return [...new Set(out)];
+}
+
+function collectMissingSlotsFromPlanningTasks(ir: IntentResultNonNull): string[] {
+  const out: string[] = [];
+  for (const t of ir.planningTasks ?? []) {
+    for (const m of t.missingSlots ?? []) out.push(m);
+  }
+  return [...new Set(out)];
+}
+
 function wantsClarification(ir: OrchestratorState["intentResult"]): boolean {
   if (!ir) return false;
   if (ir.needsClarification && ir.clarificationQuestion?.trim()) return true;
   if ((getBestDataQueryIntent(ir)?.missingSlots?.length ?? 0) > 0) return true;
   if ((ir.planningTasks ?? []).some((t) => (t.missingSlots?.length ?? 0) > 0)) return true;
-  if (ir.taskPlan?.nextAction === "clarify") return true;
-  if (ir.taskPlan?.missingParamsSummary?.length) return true;
+  if (collectMissingParamsFromSkillSteps(ir).length > 0) return true;
   return false;
 }
 
-function planClarificationMessage(ir: OrchestratorState["intentResult"]): string | undefined {
-  if (!ir?.taskPlan) return undefined;
-  const summary = ir.taskPlan.missingParamsSummary ?? [];
-  if (summary.length > 0) {
-    return `请先补充以下信息后再执行：${summary.join("、")}`;
+function planClarificationMessageFromPlanningTasks(
+  ir: OrchestratorState["intentResult"]
+): string | undefined {
+  if (!ir?.planningTasks?.length) return undefined;
+  const slots = collectMissingSlotsFromPlanningTasks(ir);
+  const params = collectMissingParamsFromSkillSteps(ir);
+  const merged = [...slots, ...params.filter((p) => !slots.includes(p))];
+  if (merged.length > 0) {
+    return `请先补充以下信息后再执行：${merged.join("、")}`;
   }
-  const missingFromTasks = (ir.taskPlan.subTasks ?? [])
-    .flatMap((t) => t.missingParams ?? [])
-    .filter((x, i, arr) => arr.indexOf(x) === i);
-  if (missingFromTasks.length > 0) {
-    return `请先补充以下信息后再执行：${missingFromTasks.join("、")}`;
-  }
-  return ir.taskPlan.finalSummary?.trim() || "当前任务仍需补充必要信息。";
+  return ir.clarificationQuestion?.trim() || "当前任务仍需补充必要信息。";
 }
 
 function blockedPlanningMessage(ir: OrchestratorState["intentResult"]): string | undefined {
@@ -53,11 +70,16 @@ function blockedPlanningMessage(ir: OrchestratorState["intentResult"]): string |
 }
 
 function planExecutionPreviewMessage(ir: OrchestratorState["intentResult"]): string | undefined {
-  if (!ir?.taskPlan || ir.taskPlan.nextAction !== "execute") return undefined;
-  const executableTasks = (ir.taskPlan.subTasks ?? []).filter((t) => t.executable);
+  if (!ir?.planningTasks?.length) return undefined;
+  if (ir.planPhase === "blocked" || ir.planPhase === "draft") return undefined;
+  const executableTasks = ir.planningTasks.filter((t) => t.executable === true);
   if (executableTasks.length === 0) return undefined;
   const lines = executableTasks.slice(0, 3).map((t) => {
-    const entry = t.selectedCapability?.id ? `（${t.selectedCapability.id}）` : "";
+    const steps = t.skillSteps ?? [];
+    const cap = [...steps]
+      .reverse()
+      .find((s) => s.selectedCapability?.id)?.selectedCapability;
+    const entry = cap?.id ? `（${cap.id}）` : "";
     return `${t.taskId}: ${t.goal}${entry}`;
   });
   const more = executableTasks.length > 3 ? `；其余 ${executableTasks.length - 3} 个子任务已省略` : "";
@@ -177,9 +199,15 @@ export function composeAnswerNode(
     });
   }
 
-  /** 通用 taskPlan：需要澄清时，合成缺参追问 */
-  if (ir?.taskPlan?.nextAction === "clarify") {
-    const message = ir.clarificationQuestion?.trim() || planClarificationMessage(ir) || "请补充必要信息后继续。";
+  /** planningTasks 层缺参（task.missingSlots 或 skillSteps[].missingParams） */
+  const planningMissing =
+    (ir?.planningTasks?.some((t) => (t.missingSlots?.length ?? 0) > 0) ?? false) ||
+    (ir && collectMissingParamsFromSkillSteps(ir).length > 0);
+  if (planningMissing && ir) {
+    const message =
+      ir.clarificationQuestion?.trim() ||
+      planClarificationMessageFromPlanningTasks(ir) ||
+      "请补充必要信息后继续。";
     const finalAnswer = { type: "clarification" as const, message };
     return logComposeDone(t0, {
       finalAnswer,
@@ -265,7 +293,11 @@ export function composeAnswerNode(
       ia?.goal?.trim()
         ? `已识别为数据分析需求：${ia.goal.trim()}。当前版本将先完成查询准备，随后进入分析步骤。`
         : "已识别为数据分析需求。请补充分析口径（指标、时间范围、分组维度）以继续。";
-    const finalAnswer = { type: "task_plan" as const, message, taskPlan: ir?.taskPlan };
+    const finalAnswer = {
+      type: "task_plan" as const,
+      message,
+      planningTasks: ir?.planningTasks ?? []
+    };
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -281,7 +313,11 @@ export function composeAnswerNode(
       ik?.goal?.trim()
         ? `已识别为知识问答需求：${ik.goal.trim()}。我会基于已披露能力整理答案。`
         : "已识别为知识问答需求，请补充你希望查询的主题范围或对象。";
-    const finalAnswer = { type: "task_plan" as const, message, taskPlan: ir?.taskPlan };
+    const finalAnswer = {
+      type: "task_plan" as const,
+      message,
+      planningTasks: ir?.planningTasks ?? []
+    };
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -297,7 +333,7 @@ export function composeAnswerNode(
       ? {
           type: "task_plan" as const,
           message: preview,
-          taskPlan: ir?.taskPlan
+          planningTasks: ir?.planningTasks ?? []
         }
       : {
           type: "fallback" as const,
