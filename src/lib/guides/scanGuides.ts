@@ -4,8 +4,9 @@ import { parse as parseYaml } from "yaml";
 import { getRuntimeContext } from "../../config/runtimeContext.js";
 import { clearGuides, getGuide, registerGuide } from "./guideRegistry.js";
 import {
-  parseCapabilitiesBlock,
   parseExecutionBlock,
+  parseInputBrief,
+  parseOutputBrief,
   parseParamsBlock
 } from "./parseGuideMeta.js";
 import type { SkillGuideEntry } from "./types.js";
@@ -21,12 +22,6 @@ export function defaultGuidesDir(): string {
   if (fromEnv) return fromEnv;
   const { workspaceDir } = getRuntimeContext();
   return join(workspaceDir, "skills", "guides");
-}
-
-function rootSkillTemplateIdFromMeta(o: Record<string, unknown>): string | undefined {
-  if (typeof o.skillTemplateId === "string") return o.skillTemplateId.trim();
-  if (typeof o.queryTemplateId === "string") return o.queryTemplateId.trim();
-  return undefined;
 }
 
 async function collectMdFiles(dir: string): Promise<string[]> {
@@ -66,12 +61,22 @@ function parseGuideFile(content: string, filePath: string): SkillGuideEntry | nu
   const title = typeof o.title === "string" ? o.title : "";
   if (!id || !title) return null;
 
-  const skillTemplateId = rootSkillTemplateIdFromMeta(o);
   const description =
     typeof o.description === "string" ? o.description.trim() : undefined;
   const params = parseParamsBlock(o.params);
   const execution = parseExecutionBlock(o.execution);
-  const capabilities = parseCapabilitiesBlock(o.capabilities);
+  const inputBrief = parseInputBrief(o.inputBrief);
+  const outputBrief = parseOutputBrief(o.outputBrief);
+  if (typeof o.skillTemplateId === "string" || typeof o.queryTemplateId === "string") {
+    console.warn(
+      `[Guides] ${filePath}: 检测到已废弃字段 skillTemplateId/queryTemplateId；当前统一使用 id 作为规划键`
+    );
+  }
+  if (Array.isArray(o.capabilities)) {
+    console.warn(
+      `[Guides] ${filePath}: 检测到已废弃字段 capabilities；当前仅支持单文件单 skill，请拆分为多个 guide 文件`
+    );
+  }
 
   const entry: SkillGuideEntry = {
     id,
@@ -86,10 +91,10 @@ function parseGuideFile(content: string, filePath: string): SkillGuideEntry | nu
     tags: Array.isArray(o.tags)
       ? o.tags.filter((x): x is string => typeof x === "string")
       : undefined,
-    ...(skillTemplateId ? { skillTemplateId } : {}),
     ...(params ? { params } : {}),
     ...(execution ? { execution } : {}),
-    ...(capabilities ? { capabilities } : {}),
+    ...(inputBrief ? { inputBrief } : {}),
+    ...(outputBrief ? { outputBrief } : {}),
     body: m[2].trim(),
     filePath
   };

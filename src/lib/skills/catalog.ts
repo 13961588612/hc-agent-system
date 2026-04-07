@@ -1,12 +1,7 @@
 import type { SkillGuideEntry } from "../guides/types.js";
 import { getGuide, listGuides } from "../guides/guideRegistry.js";
 import { getDomainEntry, getSystemConfig, getSegmentEntry } from "../../config/systemConfig.js";
-import type { AnySkillMeta, skillType } from "./type.js";
-
-export interface SkillCapabilityBrief {
-  id: string;
-  description?: string;
-}
+import type { AnySkillMeta, SkillCapabilityBrief, skillType } from "./type.js";
 
 /**
  * 轻量技能目录（可执行技能）：
@@ -26,11 +21,9 @@ function buildSkillCatalog(): AnySkillMeta[] {
 }
 
 function generateSkillByGuide(guide: SkillGuideEntry): AnySkillMeta {
-  const capabilities: SkillCapabilityBrief[] =
-    guide.capabilities?.map((c) => ({
-      id: c.id,
-      ...(c.description ? { description: c.description } : {})
-    })) ?? [];
+  const capabilities: SkillCapabilityBrief[] = [
+    { id: guide.id, ...(guide.description ? { description: guide.description } : {}) }
+  ];
   return {
     id: guide.id,
     name: guide.title,
@@ -74,10 +67,6 @@ export function listSkillsByDomainSegment(
     capabilities: AnySkillMeta["capabilities"]
   ): SkillCapabilityBrief[] | undefined => {
     if (!capabilities || capabilities.length === 0) return undefined;
-    const first = capabilities[0];
-    if (typeof first === "string") {
-      return (capabilities as string[]).map((id) => ({ id }));
-    }
     return capabilities as SkillCapabilityBrief[];
   };
 

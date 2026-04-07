@@ -33,19 +33,30 @@ export interface GuideExecution {
   minConfidence?: number;
 }
 
-/**
- * 单篇 Guide 内的一条可执行能力（与正文「能力 id」对应）。
- * 查找键：优先 `queryTemplateId`，缺省可与 `id` 相同。
- */
-export interface GuideCapabilityMeta {
-  /** 稳定能力 id，如 `member.profile.by_user_id` */
-  id: string;
-  /** 短说明：披露列表、消歧、选用条件摘要（与正文「触发」可互补） */
-  description?: string;
-  /** 可选；与意图/模板路由对齐；未写时编排可用 `id` 参与匹配 */
-  skillTemplateId?: string;
-  params?: GuideParamsBlock;
-  execution?: GuideExecution;
+/** 头部输入摘要（用于不读正文快速规划） */
+export interface GuideInputBrief {
+  required?: Array<{
+    name: string;
+    caption?: string;
+    type?: string;
+    maxItems?: number;
+    description?: string;
+  }>;
+}
+
+/** 头部输出字段摘要 */
+export interface GuideOutputFieldBrief {
+  name: string;
+  caption?: string;
+  type?: string;
+  nullable?: boolean;
+}
+
+/** 头部输出摘要（用于不读正文快速规划） */
+export interface GuideOutputBrief {
+  resultType?: string;
+  resultPath?: string;
+  fields?: GuideOutputFieldBrief[];
 }
 
 export interface SkillGuideMeta {
@@ -58,20 +69,14 @@ export interface SkillGuideMeta {
   segment?: string;
   relatedSkillIds?: string[];
   tags?: string[];
-  /**
-   * 稳定查询模板 id，可与意图 `targetIntent` / 问数域主题映射。
-   * 见 `docs/design-milestone6-skillguide-slots.md` §三。
-   */
-  skillTemplateId?: string;
   /** 分布式槽位；未配置时 Guide 仍可作为纯说明文档 */
   params?: GuideParamsBlock;
   /** 执行契约；未配置时不走自动模板执行路径 */
   execution?: GuideExecution;
-  /**
-   * 单文件多能力：每条可自带 `params` / `execution`。
-   * 与顶层 `params` / `execution` 可并存：顶层作文件级默认，选中某能力后以该条为准（由编排侧合并策略决定）。
-   */
-  capabilities?: GuideCapabilityMeta[];
+  /** 输入摘要：用于快速规划 */
+  inputBrief?: GuideInputBrief;
+  /** 输出摘要：用于快速规划 */
+  outputBrief?: GuideOutputBrief;
 }
 
 export interface SkillGuideEntry extends SkillGuideMeta {

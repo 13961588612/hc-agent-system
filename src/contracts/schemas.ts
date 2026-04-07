@@ -34,21 +34,16 @@ const DataQueryPlanningTaskSchema = z.object({
         stepId: z.string().optional(),
         skillsDomainId: z.string().optional(),
         skillsSegmentId: z.string().optional(),
-        disclosedCapabilityIds: z.array(z.string()).optional(),
-        selectedCapability: z
-          .object({
-            kind: z.enum(["skill", "guide"]).optional(),
-            id: z.string().optional(),
-            ownerSkillId: z.string().optional()
-          })
-          .optional(),
+        disclosedSkillIds: z.array(z.string()).optional(),
+        selectedSkillId: z.string().optional(),
+        selectedSkillKind: z.enum(["skill", "guide"]).optional(),
         requiredParams: z.array(z.string()).optional(),
         providedParams: z.record(z.string(), z.unknown()).optional(),
         missingParams: z.array(z.string()).optional(),
         executable: z.boolean().optional(),
         executionSkillId: z.string().optional(),
         dbClientKey: z.string().optional(),
-        expectedOutput: z.enum(["table", "object", "summary"]).optional()
+        expectedOutput: z.string().optional()
       })
     )
     .optional()
@@ -251,8 +246,8 @@ export const OrchestratorStateSchema = new StateSchema({
   guidePhase: z
     .enum(["idle", "ready", "awaiting_slot", "skipped"])
     .optional(),
-  selectedGuideId: z.string().optional(),
-  selectedCapabilityId: z.string().optional(),
+  selectedSkillId: z.string().optional(),
+  selectedSkillEntryId: z.string().optional(),
   guideResolvedParams: z.record(z.string(), z.unknown()).optional(),
   guideMissingParams: z.array(z.string()).optional(),
   /** 编排器最终对用户/调用方的回答（结构由上层决定） */
@@ -289,8 +284,8 @@ export type OrchestratorState = {
   /** 上次追问时间；0 表示无 */
   lastClarificationAtMs?: number;
   guidePhase?: "idle" | "ready" | "awaiting_slot" | "skipped";
-  selectedGuideId?: string;
-  selectedCapabilityId?: string;
+  selectedSkillId?: string;
+  selectedSkillEntryId?: string;
   guideResolvedParams?: Record<string, unknown>;
   guideMissingParams?: string[];
   finalAnswer?: unknown;

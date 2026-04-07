@@ -15,7 +15,7 @@ import { getGuide } from "../lib/guides/guideRegistry.js";
 import { allTools, TOOL_HANDLERS } from "../lib/tools/tools.js";
 
 /** 与 skills 目录中 Guide id 一致；规则已注入系统提示，工具层禁止再 invoke 以免死循环 */
-const INTENT_COMMON_GUIDE_ID = "intent-common";
+const INTENT_COMMON_GUIDE_ID = "intent-planning-decompose-and-orchestrate";
 
 /** 从 system.yaml 注入到意图识别提示词中的系统摘要（只读配置，不写死业务） */
 function formatSystemContextForIntentPrompt(): string {
@@ -76,7 +76,7 @@ function buildIntentJsonInstructionBase(): string {
 
   return `你是客服场景的多意图识别与任务拆解器。
 ${guideBlock}
-工具仅用于辅助发现**业务域**能力：可用 \`list_skills_by_domain_segment\` 列候选，再用 \`invoke_skill\` 查看**非 intent-common** 的 skill/guide 详情。**禁止**对 skillId=\`${INTENT_COMMON_GUIDE_ID}\` 调用 \`invoke_skill\`（规则已在上方全文给出）。
+工具仅用于辅助发现业务域 guide/skill：可用 \`list_skills_by_domain_segment\` 列候选，再用 \`invoke_skill\` 查看**非 \`${INTENT_COMMON_GUIDE_ID}\`** 的详情。**禁止**对 skillId=\`${INTENT_COMMON_GUIDE_ID}\` 调用 \`invoke_skill\`（规则已在上方全文给出）。
 只做意图识别与任务拆解；输出**一条**符合 IntentResultSchema 的 JSON 后结束（最终一轮应无 tool_calls）。不要执行真实 SQL、不要在本阶段跑业务查询。
 ${systemContext}
 
@@ -135,7 +135,7 @@ function normalizeIntentPayloadForSchema(payload: unknown): unknown {
     });
   }
 
-  // 兼容旧字段 disclosedSkillIds -> disclosedCapabilityIds
+  // 兼容字段：旧命名 -> 新命名（disclosedSkillIds/selectedSkillId+selectedSkillKind）
   if (Array.isArray(obj.planningTasks)) {
     obj.planningTasks = obj.planningTasks.map((t) => {
       if (!t || typeof t !== "object") return t;
@@ -145,29 +145,47 @@ function normalizeIntentPayloadForSchema(payload: unknown): unknown {
           if (!s || typeof s !== "object") return s;
           const step = { ...(s as Record<string, unknown>) };
           if (
-            step.disclosedCapabilityIds === undefined &&
-            Array.isArray(step.disclosedSkillIds)
+            step.disclosedSkillIds === undefined &&
+            Array.isArray(step.disclosedGuideIds)
           ) {
-            step.disclosedCapabilityIds = step.disclosedSkillIds;
+            step.disclosedSkillIds = step.disclosedGuideIds;
           }
           if (
-            step.selectedCapability &&
-            typeof step.selectedCapability === "object"
+            step.disclosedSkillIds === undefined &&
+            Array.isArray(step.disclosedCapabilityIds)
           ) {
-            const sc = {
-              ...(step.selectedCapability as Record<string, unknown>)
-            };
-            if (
-              sc.ownerSkillId === undefined &&
-              typeof sc.skillId === "string" &&
-              sc.skillId.trim()
-            ) {
-              sc.ownerSkillId = sc.skillId.trim();
-            }
-            delete sc.skillId;
-            step.selectedCapability = sc;
+            step.disclosedSkillIds = step.disclosedCapabilityIds;
           }
-          delete step.disclosedSkillIds;
+          const selectedFromLegacy = (() => {
+            if (step.selectedCapability && typeof step.selectedCapability === "object") {
+              return step.selectedCapability as Record<string, unknown>;
+            }
+            if (step.selectedGuide && typeof step.selectedGuide === "object") {
+              return step.selectedGuide as Record<string, unknown>;
+            }
+            if (step.selectedSkill && typeof step.selectedSkill === "object") {
+              return step.selectedSkill as Record<string, unknown>;
+            }
+            return undefined;
+          })();
+          if (step.selectedSkillId === undefined && selectedFromLegacy) {
+            const id =
+              (typeof selectedFromLegacy.id === "string" && selectedFromLegacy.id.trim()) ||
+              (typeof selectedFromLegacy.skillId === "string" && selectedFromLegacy.skillId.trim()) ||
+              undefined;
+            if (id) step.selectedSkillId = id;
+          }
+          if (step.selectedSkillKind === undefined && selectedFromLegacy) {
+            const kind = selectedFromLegacy.kind;
+            if (kind === "skill" || kind === "guide") {
+              step.selectedSkillKind = kind;
+            }
+          }
+          delete step.disclosedGuideIds;
+          delete step.disclosedCapabilityIds;
+          delete step.selectedGuide;
+          delete step.selectedCapability;
+          delete step.selectedSkill;
           return step;
         });
       }

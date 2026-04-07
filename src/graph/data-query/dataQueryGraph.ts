@@ -101,7 +101,7 @@ async function runSqlQuerySkillWithOptionalFallback(
 
 type PlannedStep = {
   stepId?: string;
-  capabilityId: string;
+  skillEntryId: string;
   skillId: string;
   executionSkillId?: string;
   dbClientKey?: string;
@@ -115,12 +115,12 @@ function pickSelectedSkillPlansFromTask(
   const steps = task?.skillSteps ?? [];
   const plans: PlannedStep[] = [];
   for (const s of steps) {
-    const id = s.selectedCapability?.id?.trim();
+    const id = s.selectedSkillId?.trim();
     if (!id) continue;
     plans.push({
       stepId: s.stepId,
-      capabilityId: id,
-      skillId: s.selectedCapability?.ownerSkillId?.trim() || "",
+      skillEntryId: id,
+      skillId: id,
       executionSkillId: s.executionSkillId?.trim() || undefined,
       dbClientKey: s.dbClientKey?.trim() || undefined,
       missingParams: s.missingParams,
@@ -136,7 +136,7 @@ function pickSelectedSkillPlans(
   const plans = pickSelectedSkillPlansFromTask(input.planningTask);
   if (plans.length > 0) return plans;
   const fallback = input.targetIntent?.trim();
-  return fallback ? [{ capabilityId: fallback, skillId: fallback }] : [];
+  return fallback ? [{ skillEntryId: fallback, skillId: fallback }] : [];
 }
 
 function pickPlanningTaskQueue(
@@ -338,7 +338,7 @@ builder.addNode("generate_sql", async (state: DataQueryState) => {
         continue;
       }
       if (taskPlans.length === 0) {
-        stepErrors[`${taskId}:task_guard`] = "该任务未选出可执行 capability";
+        stepErrors[`${taskId}:task_guard`] = "该任务未选出可执行 skill";
         continue;
       }
 

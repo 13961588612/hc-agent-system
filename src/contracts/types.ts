@@ -86,7 +86,7 @@ export interface DataQuerySqlItem {
   params?: unknown[];
   /** `DbClientManager` 连接键；会员库一般为 `member`，未填则用 `default` */
   dbClientKey?: string;
-  /** 结果表中 `name`、错误映射用；建议填能力 id 或简短说明 */
+  /** 结果表中 `name`、错误映射用；建议填 guide id 或简短说明 */
   label?: string;
   /** 传入 `sql-query` 的 purpose 日志 */
   purpose?: string;
@@ -139,19 +139,16 @@ export interface DataQueryInput {
       stepId?: string;
       skillsDomainId?: string;
       skillsSegmentId?: string;
-      disclosedCapabilityIds?: string[];
-      selectedCapability?: {
-        kind?: "skill" | "guide";
-        id?: string;
-        ownerSkillId?: string;
-      };
+      disclosedSkillIds?: string[];
+      selectedSkillId?: string;
+      selectedSkillKind?: "skill" | "guide";
       requiredParams?: string[];
       providedParams?: Record<string, unknown>;
       missingParams?: string[];
       executable?: boolean;
       executionSkillId?: string;
       dbClientKey?: string;
-      expectedOutput?: "table" | "object" | "summary";
+      expectedOutput?: string;
     }>;
   };
   /** 意图规划阶段下发的 data_query 子任务队列（按顺序串行执行） */
@@ -166,19 +163,16 @@ export interface DataQueryInput {
       stepId?: string;
       skillsDomainId?: string;
       skillsSegmentId?: string;
-      disclosedCapabilityIds?: string[];
-      selectedCapability?: {
-        kind?: "skill" | "guide";
-        id?: string;
-        ownerSkillId?: string;
-      };
+      disclosedSkillIds?: string[];
+      selectedSkillId?: string;
+      selectedSkillKind?: "skill" | "guide";
       requiredParams?: string[];
       providedParams?: Record<string, unknown>;
       missingParams?: string[];
       executable?: boolean;
       executionSkillId?: string;
       dbClientKey?: string;
-      expectedOutput?: "table" | "object" | "summary";
+      expectedOutput?: string;
     }>;
   }>;
   /** 意图节点解析槽位，子图优先用于路由与演示 SQL 参数 */

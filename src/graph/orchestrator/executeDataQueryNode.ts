@@ -71,14 +71,9 @@ export async function executeDataQueryNode(
             stepId: s.stepId,
             skillsDomainId: s.skillsDomainId,
             skillsSegmentId: s.skillsSegmentId,
-            disclosedCapabilityIds: s.disclosedCapabilityIds,
-            selectedCapability: s.selectedCapability
-              ? {
-                  kind: s.selectedCapability.kind,
-                  id: s.selectedCapability.id,
-                  ownerSkillId: s.selectedCapability.ownerSkillId
-                }
-              : undefined,
+            disclosedSkillIds: s.disclosedSkillIds,
+            selectedSkillId: s.selectedSkillId,
+            selectedSkillKind: s.selectedSkillKind,
             requiredParams: s.requiredParams,
             providedParams: s.providedParams,
             missingParams: s.missingParams,
@@ -101,14 +96,9 @@ export async function executeDataQueryNode(
             stepId: s.stepId,
             skillsDomainId: s.skillsDomainId,
             skillsSegmentId: s.skillsSegmentId,
-            disclosedCapabilityIds: s.disclosedCapabilityIds,
-            selectedCapability: s.selectedCapability
-              ? {
-                  kind: s.selectedCapability.kind,
-                  id: s.selectedCapability.id,
-                  ownerSkillId: s.selectedCapability.ownerSkillId
-                }
-              : undefined,
+            disclosedSkillIds: s.disclosedSkillIds,
+            selectedSkillId: s.selectedSkillId,
+            selectedSkillKind: s.selectedSkillKind,
             requiredParams: s.requiredParams,
             providedParams: s.providedParams,
             missingParams: s.missingParams,
@@ -127,7 +117,7 @@ export async function executeDataQueryNode(
       } else if (planSlots && Object.keys(planSlots).length > 0) {
         base.resolvedSlots = planSlots;
       }
-      const plannedEntry = pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability?.id;
+      const plannedEntry = pt?.skillSteps?.find((s) => s.selectedSkillId?.trim())?.selectedSkillId;
       if (plannedEntry?.trim()) base.targetIntent = plannedEntry.trim();
       const effectiveDomainId = dq.domainId?.trim() || pt?.systemModuleId?.trim();
       const effectiveSegmentId = dq.segmentId?.trim();
@@ -137,9 +127,9 @@ export async function executeDataQueryNode(
         // 兼容旧链路
         base.dataQueryDomain = effectiveSegmentId;
       }
-      const plannedSql = pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability;
-      if (plannedSql && !base.targetIntent) {
-        base.targetIntent = plannedSql.id;
+      const plannedSkillId = pt?.skillSteps?.find((s) => s.selectedSkillId?.trim())?.selectedSkillId;
+      if (plannedSkillId && !base.targetIntent) {
+        base.targetIntent = plannedSkillId;
       }
       return base;
     })(),

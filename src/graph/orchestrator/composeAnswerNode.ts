@@ -78,8 +78,8 @@ function planExecutionPreviewMessage(ir: OrchestratorState["intentResult"]): str
     const steps = t.skillSteps ?? [];
     const cap = [...steps]
       .reverse()
-      .find((s) => s.selectedCapability?.id)?.selectedCapability;
-    const entry = cap?.id ? `（${cap.id}）` : "";
+      .find((s) => s.selectedSkillId?.trim());
+    const entry = cap?.selectedSkillId ? `（${cap.selectedSkillId}）` : "";
     return `${t.taskId}: ${t.goal}${entry}`;
   });
   const more = executableTasks.length > 3 ? `；其余 ${executableTasks.length - 3} 个子任务已省略` : "";

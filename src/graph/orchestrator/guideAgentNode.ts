@@ -1,16 +1,12 @@
-import type {
-  GuideCapabilityMeta,
-  GuideParamsBlock,
-  SkillGuideEntry
-} from "../../lib/guides/types.js";
+import type { GuideParamsBlock, SkillGuideEntry } from "../../lib/guides/types.js";
 import {
-  findGuideCapabilityByKey,
+  findGuideByKey,
   listGuides
 } from "../../lib/guides/guideRegistry.js";
 import { validateGuideSlots } from "../../lib/guides/slotValidation.js";
 import {
   bindFirstInClause,
-  extractCapabilitySqlTemplate
+  extractFirstSqlTemplate
 } from "../../lib/guides/sqlTemplateBind.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
@@ -59,7 +55,7 @@ function slotValue(slots: Record<string, unknown>, name: string): unknown {
   return undefined;
 }
 
-function fillParamsForCapability(
+function fillParamsForGuide(
   paramsBlock: GuideParamsBlock | undefined,
   slots: Record<string, unknown>
 ): Record<string, unknown> {
@@ -76,53 +72,46 @@ function fillParamsForCapability(
   return out;
 }
 
-function effectiveParamsBlock(
+function scoreGuide(
   guide: SkillGuideEntry,
-  capability: GuideCapabilityMeta
-): GuideParamsBlock | undefined {
-  return capability.params ?? guide.params;
-}
-
-function scoreCapability(
-  capability: GuideCapabilityMeta,
   userInput: string,
   slots: Record<string, unknown>
 ): number {
   const text = userInput.toLowerCase();
-  const id = capability.id.toLowerCase();
-  const desc = (capability.description ?? "").toLowerCase();
+  const id = guide.id.toLowerCase();
+  const desc = (guide.description ?? "").toLowerCase();
+  const title = guide.title.toLowerCase();
   let score = 0;
-  if ((text.includes("卡号") || slots.member_card) && (id.includes("card") || desc.includes("卡号"))) score += 4;
-  if ((text.includes("手机号") || slots.phone) && (id.includes("mobile") || desc.includes("手机号"))) score += 4;
-  if ((text.includes("流水") || text.includes("明细")) && id.includes("ledger")) score += 5;
-  if ((text.includes("生日") || text.includes("变更")) && id.includes("change_log")) score += 5;
-  if ((text.includes("档案") || text.includes("资料")) && id.includes("profile")) score += 3;
-  if (text.includes("积分") && id.includes("points")) score += 3;
-  return score;
-}
-
-function pickBestCapability(
-  guide: SkillGuideEntry,
-  userInput: string,
-  slots: Record<string, unknown>
-): GuideCapabilityMeta | undefined {
-  const caps = guide.capabilities ?? [];
-  if (!caps.length) return undefined;
-  let best: GuideCapabilityMeta | undefined;
-  let bestScore = -1;
-  for (const c of caps) {
-    const s = scoreCapability(c, userInput, slots);
-    if (s > bestScore) {
-      bestScore = s;
-      best = c;
-    }
+  if (
+    (text.includes("卡号") || slots.member_card) &&
+    (id.includes("card") || title.includes("卡号") || desc.includes("卡号"))
+  )
+    score += 4;
+  if (
+    (text.includes("手机号") || slots.phone) &&
+    (id.includes("mobile") || title.includes("手机") || desc.includes("手机"))
+  )
+    score += 4;
+  if (
+    (text.includes("流水") || text.includes("明细")) &&
+    (id.includes("ledger") || title.includes("流水"))
+  )
+    score += 5;
+  if (
+    (text.includes("生日") || text.includes("变更")) &&
+    (id.includes("change_log") || title.includes("变更"))
+  )
+    score += 5;
+  if (text.includes("档案") || text.includes("资料")) {
+    if (id.includes("profile") || title.includes("档案") || desc.includes("资料")) score += 3;
   }
-  return best ?? caps[0];
+  if (text.includes("积分") && (id.includes("points") || title.includes("积分"))) score += 3;
+  return score;
 }
 
 function resolveGuideMatch(
   state: OrchestratorState
-): { guide: SkillGuideEntry; capability: GuideCapabilityMeta } | undefined {
+): SkillGuideEntry | undefined {
   const ir = state.intentResult;
   const pt = getPrimaryPlanningTask(ir, "data_query");
   const dq = getBestDataQueryIntent(ir);
@@ -137,15 +126,11 @@ function resolveGuideMatch(
   if (card && !slots.member_card) slots.member_card = card;
   if (phone && !slots.phone) slots.phone = phone;
   const plannedEntry =
-    pt?.skillSteps?.find((s) => s.selectedCapability?.id)?.selectedCapability?.id?.trim() ?? "";
+    pt?.skillSteps?.find((s) => s.selectedSkillId?.trim())?.selectedSkillId?.trim() ?? "";
   const key = plannedEntry || dq.targetEntryId?.trim() || "";
   if (key) {
-    const hit = findGuideCapabilityByKey(key);
-    if (hit?.capability) return { guide: hit.guide, capability: hit.capability };
-    if (hit?.guide && hit.capability === undefined && hit.guide.capabilities?.length) {
-      const cap = pickBestCapability(hit.guide, state.input.userInput, slots);
-      if (cap) return { guide: hit.guide, capability: cap };
-    }
+    const hit = findGuideByKey(key);
+    if (hit?.guide) return hit.guide;
   }
 
   const guides = listGuides().filter(
@@ -153,16 +138,20 @@ function resolveGuideMatch(
       g.domain === "data_query" &&
       (!dq.segmentId || g.segment === dq.segmentId || dq.segmentId === "other")
   );
+  let best: SkillGuideEntry | undefined;
+  let bestScore = -1;
   for (const g of guides) {
-    const cap = pickBestCapability(g, state.input.userInput, slots);
-    if (cap) return { guide: g, capability: cap };
+    const s = scoreGuide(g, state.input.userInput, slots);
+    if (s > bestScore) {
+      bestScore = s;
+      best = g;
+    }
   }
-
-  return undefined;
+  return best ?? guides[0];
 }
 
-function shouldRunSql(capability: GuideCapabilityMeta): boolean {
-  const sid = capability.execution?.skillId;
+function shouldRunSql(guide: SkillGuideEntry): boolean {
+  const sid = guide.execution?.skillId;
   return !sid || sid === "sql-query";
 }
 
@@ -188,8 +177,8 @@ export function guideAgentNode(
     return {
       guidePhase: "skipped",
       guideMissingParams: [],
-      selectedGuideId: undefined,
-      selectedCapabilityId: undefined,
+      selectedSkillId: undefined,
+      selectedSkillEntryId: undefined,
       guideResolvedParams: undefined
     };
   }
@@ -205,14 +194,14 @@ export function guideAgentNode(
     return {
       guidePhase: "skipped",
       guideMissingParams: [],
-      selectedGuideId: undefined,
-      selectedCapabilityId: undefined,
+      selectedSkillId: undefined,
+      selectedSkillEntryId: undefined,
       guideResolvedParams: undefined
     };
   }
 
-  const { guide, capability } = match;
-  const paramsBlock = effectiveParamsBlock(guide, capability);
+  const guide = match;
+  const paramsBlock: GuideParamsBlock | undefined = guide.params;
   const slots: Record<string, unknown> = {
     ...(state.guideResolvedParams ?? {}),
     ...((dq.resolvedSlots ?? {}) as Record<string, unknown>)
@@ -221,7 +210,7 @@ export function guideAgentNode(
   const phone = extractPhoneFromText(state.input.userInput);
   if (card && !slots.member_card) slots.member_card = card;
   if (phone && !slots.phone) slots.phone = phone;
-  let guideResolvedParams = fillParamsForCapability(paramsBlock, slots);
+  let guideResolvedParams = fillParamsForGuide(paramsBlock, slots);
   const validation = validateGuideSlots(paramsBlock, guideResolvedParams);
 
   if (!validation.satisfied) {
@@ -233,42 +222,42 @@ export function guideAgentNode(
     );
     return {
       guidePhase: "awaiting_slot",
-      selectedGuideId: guide.id,
-      selectedCapabilityId: capability.id,
+      selectedSkillId: guide.id,
+      selectedSkillEntryId: guide.id,
       guideResolvedParams,
       guideMissingParams: validation.missing
     };
   }
 
-  if (!shouldRunSql(capability)) {
+  if (!shouldRunSql(guide)) {
     log(
       "[Orchestrator]",
       "node guide_agent execution 非 sql-query",
-      capability.execution?.skillId ?? "",
+      guide.execution?.skillId ?? "",
       t0
     );
     return {
       guidePhase: "skipped",
       guideMissingParams: [],
-      selectedGuideId: guide.id,
-      selectedCapabilityId: capability.id,
+      selectedSkillId: guide.id,
+      selectedSkillEntryId: guide.id,
       guideResolvedParams
     };
   }
 
-  const rawSql = extractCapabilitySqlTemplate(guide.body, capability.id);
+  const rawSql = extractFirstSqlTemplate(guide.body);
   if (!rawSql?.trim()) {
     log(
       "[Orchestrator]",
       "node guide_agent 未找到 SQL 模板",
-      `capability=${capability.id}`,
+      `guide=${guide.id}`,
       t0
     );
     return {
       guidePhase: "skipped",
       guideMissingParams: [],
-      selectedGuideId: guide.id,
-      selectedCapabilityId: capability.id,
+      selectedSkillId: guide.id,
+      selectedSkillEntryId: guide.id,
       guideResolvedParams
     };
   }
@@ -283,7 +272,7 @@ export function guideAgentNode(
 
   try {
     const { sql, params } = bindFirstInClause(rawSql, bindValues);
-    const minC = capability.execution?.minConfidence;
+    const minC = guide.execution?.minConfidence;
     if (
       typeof minC === "number" &&
       Number.isFinite(minC) &&
@@ -299,8 +288,8 @@ export function guideAgentNode(
       return {
         guidePhase: "skipped",
         guideMissingParams: [],
-        selectedGuideId: guide.id,
-        selectedCapabilityId: capability.id,
+        selectedSkillId: guide.id,
+        selectedSkillEntryId: guide.id,
         guideResolvedParams
       };
     }
@@ -308,15 +297,15 @@ export function guideAgentNode(
     log(
       "[Orchestrator]",
       "node guide_agent 已绑定 SQL",
-      `guide=${guide.id} capability=${capability.id}`,
+      `guide=${guide.id}`,
       t0
     );
 
     return {
       guidePhase: "ready",
       guideMissingParams: [],
-      selectedGuideId: guide.id,
-      selectedCapabilityId: capability.id,
+      selectedSkillId: guide.id,
+      selectedSkillEntryId: guide.id,
       guideResolvedParams,
       input: {
         ...state.input,
@@ -324,8 +313,8 @@ export function guideAgentNode(
           sql,
           params,
           dbClientKey: dq.segmentId ?? "member",
-          label: capability.id,
-          purpose: capability.id
+          label: guide.id,
+          purpose: guide.id
         }
       }
     };
@@ -340,8 +329,8 @@ export function guideAgentNode(
     return {
       guidePhase: "skipped",
       guideMissingParams: [],
-      selectedGuideId: guide.id,
-      selectedCapabilityId: capability.id,
+      selectedSkillId: guide.id,
+      selectedSkillEntryId: guide.id,
       guideResolvedParams
     };
   }

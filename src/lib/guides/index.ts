@@ -1,5 +1,4 @@
 export type {
-  GuideCapabilityMeta,
   GuideExecution,
   GuideParamDef,
   GuideParamsBlock,
@@ -8,9 +7,9 @@ export type {
 } from "./types.js";
 export {
   clearGuides,
-  findGuideCapabilityByKey,
+  findGuideByKey,
   getGuide,
-  getGuideBySkillTemplateId,
+  getGuideById,
   listGuides,
   listGuidesByDomain,
   listGuidesByTag,
@@ -20,5 +19,6 @@ export { defaultGuidesDir, discoverAndRegisterGuides } from "./scanGuides.js";
 export { validateGuideSlots } from "./slotValidation.js";
 export {
   bindFirstInClause,
-  extractCapabilitySqlTemplate
+  extractCapabilitySqlTemplate,
+  extractFirstSqlTemplate
 } from "./sqlTemplateBind.js";

@@ -1,3 +1,4 @@
+import z from "zod";
 import type { EnvConfig } from "../../config/envConfig.js";
 import { SystemDomainEntry, SystemSegmentEntry } from "../../config/systemConfig.js";
 import { SkillGuideEntry } from "../guides/index.js";
@@ -23,7 +24,9 @@ export interface SkillContext {
   taskId?: string;
 }
 
-export type skillType = "skill" | "guide" | "playbook";
+export const skillKindSchema = z.enum(["skill", "guide", "playbook"]);
+export type skillKind = z.infer<typeof skillKindSchema>;
+
 export interface SkillCapabilityBrief {
   id: string;
   description?: string;
@@ -75,7 +78,7 @@ export interface SkillMeta<TInput = unknown, TOutput = unknown> {
    */
   outputSchema?: Record<string, unknown>;
 
-  kind: skillType;
+  kind: skillKind;
 
   skill?: SkillGuideEntry | unknown;
 }

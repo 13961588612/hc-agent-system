@@ -5,6 +5,21 @@ import {
   type SystemConfig
 } from "../config/systemConfig.js";
 
+/** 通用意图类型枚举（供 intents[].intent 与其它模块复用） */
+export const IntentTypeSchema = z.enum([
+  "data_query",
+  "data_analysis",
+  "knowledge_qa",
+  "chitchat",
+  "unknown"
+]);
+
+export type IntentType = z.infer<typeof IntentTypeSchema>;
+
+/** 规划步骤中选中的 skill 入口类型 */
+export const SelectedSkillKindSchema = z.enum(["skill", "guide"]);
+export type SelectedSkillKind = z.infer<typeof SelectedSkillKindSchema>;
+
 /**
  * 意图识别结构化结果
  *
@@ -12,7 +27,7 @@ import {
  *
  * 1. **`intents[]`**：多意图列表，每条描述一个子意图及其槽位、可执行性与追问信息。
  * 2. **根级字段**（`needsClarification`、`clarificationQuestion` 等）：用于全局澄清与回复控制。
- * 3. **`planningTasks`（可选）**：任务拆解、能力选择（`skillSteps`）、缺参与可执行性；合成与路由以此为主。
+ * 3. **`planningTasks`（可选）**：任务拆解、guide 入口选择（`skillSteps`）、缺参与可执行性；合成与路由以此为主。
  *
  * ## 一致性建议
  *
@@ -24,7 +39,7 @@ import {
  */
 export function buildIntentResultSchema(config: SystemConfig) {
   const businessSegmentSchema = z.enum(businessSegmentZodEnumValues(config));
-  const outputTypeSchema = z.enum(["table", "object", "summary"]);
+  const outputTypeSchema = z.string();
   const followUpActionSchema = z.object({
     type: z.enum(["write_artifact", "reply_channel", "invoke_agent", "none"]),
     params: z.record(z.string(), z.unknown()).optional()
@@ -32,25 +47,16 @@ export function buildIntentResultSchema(config: SystemConfig) {
   const skillStepSchema = z.object({
     /** 步骤唯一标识（同一 task 内稳定即可），用于日志与执行轨迹对齐 */
     stepId: z.string(),
-    /** 技能域（如 retrieval / analysis / qa），用于粗粒度披露能力范围 */
+    /** 技能域（如 retrieval / analysis / qa），用于粗粒度披露可用 guide/skill 范围 */
     skillsDomainId: z.string(),
-    /** 技能分段（如 member / ecommerce），用于缩小候选能力集合 */
+    /** 技能分段（如 member / ecommerce），用于缩小候选 guide/skill 集合 */
     skillsSegmentId: z.string().optional(),
-    /** 披露阶段得到的候选能力/入口 id 列表（可多项） */
-    disclosedCapabilityIds: z.array(z.string()).optional(),
-    /**
-     * 收敛后的最终能力入口（通常是单个）。
-     * - `kind=skill`：可执行技能；
-     * - `kind=guide`：指南能力（可再映射到可执行技能）。
-     */
-    selectedCapability: z
-      .object({
-        kind: z.enum(["skill", "guide"]),
-        id: z.string(),
-        /** 该能力入口归属的 skill/guide id（用于定位来源与执行映射） */
-        ownerSkillId: z.string().optional()
-      })
-      .optional(),
+    /** 披露阶段得到的候选 skill/入口 id 列表（可多项） */
+    disclosedSkillIds: z.array(z.string()).optional(),
+    /** 选中的 skill 入口 id（如 member.points_account.by_vip_id） */
+    selectedSkillId: z.string().optional(),
+    /** 选中的 skill 入口类型 */
+    selectedSkillKind: SelectedSkillKindSchema.optional(),
 
     /** 该步骤要求的参数名列表（用于缺参判定） */
     requiredParams: z.array(z.string()).optional(),
@@ -60,7 +66,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
     missingParams: z.array(z.string()).optional(),
     /** 该步骤是否可直接执行（模型自评 + 参数判定结果） */
     executable: z.boolean().optional(),
-    /** 本步骤最终执行所用技能 id（如 sql_query），用于区分能力入口与执行实现 */
+    /** 本步骤最终执行所用技能 id（如 sql_query），用于区分 guide 入口与执行实现 */
     executionSkillId: z.string().optional(),
     /** 本步骤建议使用的数据库连接键（传递给 sql_query/dbClientManager，如 member/default） */
     dbClientKey: z.string().optional(),
@@ -95,13 +101,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
            * 通用上下文字段（如 `domainId` / `segmentId` / `targetEntryId` / `resolvedSlots`）
            * 可按需要在任意子意图上提供。
            */
-          intent: z.enum([
-            "data_query",
-            "data_analysis",
-            "knowledge_qa",
-            "chitchat",
-            "unknown"
-          ]),
+          intent: IntentTypeSchema,
           /** 该子意图的自然语言目标，便于日志与 planningTasks 对齐 */
           goal: z.string().optional(),
           /** 模型对该子意图的置信度 0～1；与根级 `confidence` 独立 */
@@ -125,10 +125,12 @@ export function buildIntentResultSchema(config: SystemConfig) {
           /** 业务域 id（通用上下文字段），建议对齐 system domains 或执行模块 id。 */
           domainId: z.string().optional(),
           /**
-           * 业务分段 id（通用上下文字段），可与 `targetEntryId` 搭配用于路由、能力收敛与后续编排。
+           * 业务分段 id（通用上下文字段），可与 `targetEntryId` 搭配用于路由、guide 收敛与后续编排。
            * 合法值由当前 `system.yaml` 的 business segments（见 `businessSegmentZodEnumValues`）决定。
            */
           segmentId: businessSegmentSchema.optional(),
+          /** 目标入口 id（如 selectedSkillId），供后续路由优先命中 */
+          targetEntryId: z.string().optional(),
           /** 仍缺的槽位名列表。空或未定义表示该子意图层面无缺失。 */
           missingSlots: z.array(z.string()).optional(),
           /**

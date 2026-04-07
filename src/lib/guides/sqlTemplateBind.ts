@@ -13,6 +13,12 @@ export function extractCapabilitySqlTemplate(
   return fence?.[1]?.trim();
 }
 
+/** 单文件单 skill 模式：直接读取正文中首个 sql 围栏代码块 */
+export function extractFirstSqlTemplate(body: string): string | undefined {
+  const fence = body.match(/```sql\s*([\s\S]*?)```/i);
+  return fence?.[1]?.trim();
+}
+
 /** 将模板中第一处「IN + 括号内块注释占位」替换为 IN（:1,:2,…）并返回绑定数组 */
 const IN_COMMENT_BLOCK = /IN\s*\(\s*\/\*[\s\S]*?\*\/\s*\)/;
 

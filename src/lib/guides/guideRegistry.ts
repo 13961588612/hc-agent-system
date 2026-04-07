@@ -1,12 +1,9 @@
-import type { GuideCapabilityMeta, SkillGuideEntry } from "./types.js";
+import type { SkillGuideEntry } from "./types.js";
 
 const guides = new Map<string, SkillGuideEntry>();
 
 function guideMatchesQueryKey(g: SkillGuideEntry, q: string): boolean {
-  if (g.skillTemplateId === q) return true;
-  for (const c of g.capabilities ?? []) {
-    if (c.id === q || c.skillTemplateId === q) return true;
-  }
+  if (g.id === q) return true;
   return false;
 }
 
@@ -30,14 +27,9 @@ export function listGuidesByTag(tag: string): SkillGuideEntry[] {
   return [...guides.values()].filter((g) => g.tags?.includes(tag));
 }
 
-/**
- * 按 `skillTemplateId`、或某条能力的 `id` / `skillTemplateId` 查找 Guide；
- * 若多条相同键，以**先注册者**为准（扫描顺序）。
- */
-export function getGuideBySkillTemplateId(
-  skillTemplateId: string
-): SkillGuideEntry | undefined {
-  const q = skillTemplateId.trim();
+/** 按 `id` 查找 Guide。 */
+export function getGuideById(guideId: string): SkillGuideEntry | undefined {
+  const q = guideId.trim();
   if (!q) return undefined;
   for (const g of guides.values()) {
     if (guideMatchesQueryKey(g, q)) return g;
@@ -45,23 +37,14 @@ export function getGuideBySkillTemplateId(
   return undefined;
 }
 
-/**
- * 解析键到「Guide + 可选能力」：键可为文件级 `queryTemplateId`，或 `capabilities[].id` / `capabilities[].queryTemplateId`。
- * 仅命中文件级 `queryTemplateId` 时 `capability` 为 `undefined`（宜用顶层 `params` / `execution`）。
- */
-export function findGuideCapabilityByKey(
+/** 解析键到 Guide：当前仅支持 `id`。 */
+export function findGuideByKey(
   key: string
-):
-  | { guide: SkillGuideEntry; capability: GuideCapabilityMeta | undefined }
-  | undefined {
+): { guide: SkillGuideEntry } | undefined {
   const q = key.trim();
   if (!q) return undefined;
   for (const g of guides.values()) {
-    if (g.skillTemplateId === q) return { guide: g, capability: undefined };
-    for (const c of g.capabilities ?? []) {
-      if (c.id === q || c.skillTemplateId === q)
-        return { guide: g, capability: c };
-    }
+    if (guideMatchesQueryKey(g, q)) return { guide: g };
   }
   return undefined;
 }
