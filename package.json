@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:debug": "node --inspect --import tsx src/index.ts",
+    "dev:debug-brk": "node --inspect-brk --import tsx src/index.ts",
+    "dev:wecom:debug": "cross-env CHANNEL_MODE=wecom node --inspect --import tsx src/index.ts",
+    "dev:wecom:debug-brk": "cross-env CHANNEL_MODE=wecom node --inspect-brk --import tsx src/index.ts",
     "dev:member-profile": "tsx src/dev/runMemberProfileQueryDemo.ts",
     "dev:intent-multi": "tsx src/dev/runIntentMultiTurnDemo.ts",
     "dev:wecom": "cross-env CHANNEL_MODE=wecom tsx src/index.ts",

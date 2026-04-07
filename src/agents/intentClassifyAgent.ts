@@ -8,6 +8,7 @@ import {
 import {
   getSystemConfig,
   listBusinessSegmentIds,
+  listBusinessSegments,
   listSkillsDomains,
   listSkillsSegments,
   listSystemModuleDomains
@@ -94,6 +95,56 @@ const IntentLlmOutputSchema = z.object({
     .default([])
 });
 
+/** 从 system.yaml 注入到意图识别提示词中的系统摘要（只读配置，不写死业务） */
+function formatSystemContextForIntentPrompt(): string {
+  const cfg = getSystemConfig();
+  const ver =
+    typeof cfg.version === "number" && Number.isFinite(cfg.version)
+      ? String(cfg.version)
+      : "—";
+
+  const modules = listSystemModuleDomains(cfg);
+  const moduleBlock = modules.length
+    ? modules
+        .map(
+          (m) =>
+            `  - systemModuleId="${m.id}"${m.title ? ` 标题：${m.title}` : ""}${m.description ? ` | 说明：${m.description}` : ""}`
+        )
+        .join("\n")
+    : "  - （当前配置未声明 system-module 域，planningTasks[].systemModuleId 仍须与 intents 语义一致，可用 data_query / data_analysis / knowledge_qa 等稳定 id）";
+
+  const business = listBusinessSegments(cfg);
+  const businessBlock = business.length
+    ? business
+        .map(
+          (s) =>
+            `  - segmentId="${s.id}"${s.title ? ` 标题：${s.title}` : ""}${s.description ? ` | ${s.description}` : ""}`
+        )
+        .join("\n")
+    : "  - （无 business 分段，segmentId 可用 other 或与技能披露一致）";
+
+  const skillDomains = listSkillsDomains(cfg);
+  const skillDomBlock = skillDomains.length
+    ? skillDomains.map((d) => `  - skillsDomainId="${d.id}"${d.title ? `（${d.title}）` : ""}`).join("\n")
+    : "  - （无 skills 域配置）";
+
+  const skillSegs = listSkillsSegments(cfg);
+  const skillSegBlock = skillSegs.length
+    ? skillSegs.map((s) => `  - skillsSegmentId="${s.id}"${s.title ? `（${s.title}）` : ""}`).join("\n")
+    : "  - （无 skills 分段配置）";
+
+  return `【当前系统信息】（来自 getSystemConfig / config/system.yaml，须据此约束输出）
+- 配置 version：${ver}
+- 系统模块（facet=system-module，意图任务 planningTasks 必须按 systemModuleId 与此列表对齐）：
+${moduleBlock}
+- 业务分段（facet=business，用于 intents[].segmentId 等）：
+${businessBlock}
+- 技能顶层域（facet=skills，用于 skillSteps[].skillsDomainId）：
+${skillDomBlock}
+- 技能分段（facet=skills，用于 skillSteps[].skillsSegmentId）：
+${skillSegBlock}`;
+}
+
 function buildIntentJsonInstructionBase(): string {
   const cfg = getSystemConfig();
   const segmentIds = listBusinessSegmentIds(cfg);
@@ -101,8 +152,16 @@ function buildIntentJsonInstructionBase(): string {
   const moduleIds = listSystemModuleDomains(cfg).map((d) => d.id);
   const skillsDomainIds = listSkillsDomains(cfg).map((d) => d.id);
   const skillsSegmentIds = listSkillsSegments(cfg).map((s) => s.id);
+  const systemContext = formatSystemContextForIntentPrompt();
   return `你是客服场景的多意图识别与任务拆解器。
-必须遵循 skill「intent-common」作为唯一规则来源。
+使用 skill「intent-common」来识别意图，使用invoke_skill来执行技能。
+
+${systemContext}
+
+【任务切分】planningTasks 必须按 systemModuleId 拆分：
+- 用户一句里若涉及多个系统模块能力，应输出多条 planningTasks，每条对应一个 systemModuleId，且 taskId 互不重复。
+- 每条 planningTasks[].systemModuleId 必须是上表「系统模块」中的 id；若表为空则使用与业务一致的稳定 id（如 data_query）。
+- 同一条 planningTask 内 skillSteps 仅服务该 systemModuleId，不要把不同模块的步骤混在同一 task 里。
 
 输出要求（强约束）：
 1) 只输出一个 JSON 对象，不要 markdown/代码块/解释。
@@ -304,6 +363,61 @@ function normalizeStructuredOutputToIntentPayload(
   };
 }
 
+/** 探测 bindTools 后模型上是否挂上 tools（LangChain 版本差异下字段可能在 kwargs 等位置） */
+function describeLlmToolBinding(model: unknown): string {
+  if (!model || typeof model !== "object") return "失败：绑定结果非对象";
+  const o = model as Record<string, unknown>;
+  if (typeof o.invoke !== "function") return "失败：无 invoke，不是可调用 Runnable";
+
+  const expected = [listSkillsByDomainSegmentTool.name, invokeSkillTool.name].join(", ");
+
+  const tryExtractNames = (tools: unknown): string[] => {
+    if (!Array.isArray(tools)) return [];
+    return tools.map((t) => {
+      if (t && typeof t === "object") {
+        const x = t as Record<string, unknown>;
+        if (typeof x.name === "string") return x.name;
+        const fn = x.function;
+        if (fn && typeof fn === "object" && typeof (fn as { name?: string }).name === "string") {
+          return (fn as { name: string }).name;
+        }
+      }
+      return "?";
+    });
+  };
+
+  const kwargs = o.kwargs;
+  if (kwargs && typeof kwargs === "object") {
+    const tools = (kwargs as Record<string, unknown>).tools;
+    const names = tryExtractNames(tools);
+    if (names.length > 0) {
+      return `成功：kwargs.tools 共 ${names.length} 个 [${names.join(", ")}]（期望: ${expected}）`;
+    }
+  }
+
+  const lcKwargs = o.lc_kwargs;
+  if (lcKwargs && typeof lcKwargs === "object") {
+    const tools = (lcKwargs as Record<string, unknown>).tools;
+    const names = tryExtractNames(tools);
+    if (names.length > 0) {
+      return `成功：lc_kwargs.tools 共 ${names.length} 个 [${names.join(", ")}]（期望: ${expected}）`;
+    }
+  }
+
+  // ChatOpenAI 重写 withConfig：bindTools 返回仍是 ChatOpenAI，tools 在 defaultOptions（非 RunnableBinding.kwargs）
+  const defOpt = (o as { defaultOptions?: Record<string, unknown> }).defaultOptions;
+  if (defOpt && typeof defOpt === "object") {
+    const tools = defOpt.tools;
+    const names = tryExtractNames(tools);
+    if (names.length > 0) {
+      return `成功：defaultOptions.tools 共 ${names.length} 个 [${names.join(", ")}]（期望: ${expected}）`;
+    }
+  }
+
+  const ctor = (model as { constructor?: { name?: string } }).constructor?.name ?? "?";
+  return `部分成功：已 bindTools 且可 invoke，但未从 kwargs/defaultOptions 解析到 tools 列表（类型=${ctor}）；期望工具名: ${expected}`;
+}
+
 async function runIntentWithSkillTools(
   systemInstruction: string,
   userPrompt: string
@@ -312,34 +426,34 @@ async function runIntentWithSkillTools(
   const bindTools = (llm as { bindTools?: (tools: unknown[]) => { invoke: (x: unknown) => Promise<unknown> } })
     .bindTools;
   if (!bindTools) {
+    log("[Intent]", "LLM tool 绑定", "跳过：当前模型无 bindTools，将直接 invoke（无工具阶段）");
     return llm.invoke([new SystemMessage(systemInstruction), new HumanMessage(userPrompt)]);
   }
   const modelWithTools = bindTools.call(llm, [
     listSkillsByDomainSegmentTool,
     invokeSkillTool
   ]);
-
-  console.log("modelWithTools ->", JSON.stringify(modelWithTools, null, 2));
-
-  const systemMessage = new SystemMessage(systemInstruction);
-  console.log("systemMessage ->", JSON.stringify(systemMessage, null, 2));
-  const humanMessage = new HumanMessage(userPrompt);
-  console.log("humanMessage ->", JSON.stringify(humanMessage, null, 2));
+  log("[Intent]", "LLM tool 绑定", describeLlmToolBinding(modelWithTools));
 
   const messages: Array<SystemMessage | HumanMessage | ToolMessage | { content: unknown; tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }> }> = [
-    systemMessage,
-    humanMessage
+    new SystemMessage(systemInstruction),
+    new HumanMessage(userPrompt)
   ];
   for (let i = 0; i < 20; i++) {
     const aiMsg = (await modelWithTools.invoke(messages)) as {
       content: unknown;
       tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
     };
-
-    console.log("aiMsg ->", JSON.stringify(aiMsg, null, 2));
+    const calls = aiMsg.tool_calls ?? [];
+    if (calls.length > 0) {
+      log(
+        "[Intent]",
+        `tool 轮次 ${i + 1}：模型请求调用`,
+        calls.map((c) => c.name ?? "?").join(", ")
+      );
+    }
 
     messages.push(aiMsg);
-    const calls = aiMsg.tool_calls ?? [];
     if (calls.length === 0) return aiMsg;
     for (let j = 0; j < calls.length; j++) {
       const c = calls[j]!;
