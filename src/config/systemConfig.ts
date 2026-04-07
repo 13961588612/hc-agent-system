@@ -35,6 +35,17 @@ export interface SystemConfig {
   version?: number;
   domains: SystemDomainEntry[];
   segments: SystemSegmentEntry[];
+  /** 渠道回复展示相关配置 */
+  channelReply?: {
+    table?: {
+      /** 表格最多展示行数 */
+      maxRows?: number;
+      /** 表格最多展示列数 */
+      maxColumns?: number;
+      /** 表头中文别名映射：key=原字段名，value=中文名 */
+      headerZhMap?: Record<string, string>;
+    };
+  };
 }
 
 let singleton: SystemConfig | null = null;
@@ -97,8 +108,20 @@ function normalizeSegment(raw: unknown, index: number): SystemSegmentEntry | nul
  */
 const EMPTY_SYSTEM_CONFIG = Object.freeze({
   domains: Object.freeze([] as SystemDomainEntry[]),
-  segments: Object.freeze([] as SystemSegmentEntry[])
+  segments: Object.freeze([] as SystemSegmentEntry[]),
+  channelReply: Object.freeze({
+    table: Object.freeze({
+      maxRows: 20,
+      maxColumns: 8
+    })
+  })
 }) as unknown as SystemConfig;
+
+function normalizePositiveInt(v: unknown): number | undefined {
+  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+  const n = Math.floor(v);
+  return n > 0 ? n : undefined;
+}
 
 function parseRoot(parsed: unknown): SystemConfig | null {
   if (!parsed || typeof parsed !== "object") return null;
@@ -127,7 +150,39 @@ function parseRoot(parsed: unknown): SystemConfig | null {
     });
   }
 
-  return { version, domains, segments };
+  const replyRaw =
+    root.channelReply && typeof root.channelReply === "object"
+      ? (root.channelReply as Record<string, unknown>)
+      : undefined;
+  const tableRaw =
+    replyRaw?.table && typeof replyRaw.table === "object"
+      ? (replyRaw.table as Record<string, unknown>)
+      : undefined;
+  const maxRows = normalizePositiveInt(tableRaw?.maxRows);
+  const maxColumns = normalizePositiveInt(tableRaw?.maxColumns);
+  const headerZhMap: Record<string, string> = {};
+  if (tableRaw?.headerZhMap && typeof tableRaw.headerZhMap === "object") {
+    const rawMap = tableRaw.headerZhMap as Record<string, unknown>;
+    for (const [k, v] of Object.entries(rawMap)) {
+      const key = k.trim();
+      const val = typeof v === "string" ? v.trim() : "";
+      if (!key || !val) continue;
+      headerZhMap[key] = val;
+    }
+  }
+
+  return {
+    version,
+    domains,
+    segments,
+    channelReply: {
+      table: {
+        maxRows,
+        maxColumns,
+        headerZhMap
+      }
+    }
+  };
 }
 
 /**

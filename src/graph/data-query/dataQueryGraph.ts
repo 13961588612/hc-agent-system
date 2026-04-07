@@ -54,6 +54,24 @@ function resolveDbClientByKey(key: string): DbClient {
   return new DummyDbClient();
 }
 
+function normalizeSqlPlaceholdersByDbKey(sql: string, dbKey?: string): string {
+  const key = (dbKey ?? "").trim().toLowerCase();
+  // 当前 member 库走 Oracle，Oracle 绑定占位符需 :1/:name，兼容 LLM 常产出的 $1/$2
+  if (key === MEMBER_DB_KEY || key === "oracle") {
+    let out = sql.replace(/\$(\d+)/g, ":$1");
+    // 兼容 `?` 占位符（JDBC/MySQL 风格）-> Oracle 序号绑定 :1/:2/...
+    if (out.includes("?")) {
+      let idx = 0;
+      out = out.replace(/\?/g, () => {
+        idx += 1;
+        return `:${idx}`;
+      });
+    }
+    return out;
+  }
+  return sql;
+}
+
 /**
  * `member` 数据源执行失败时回退 `default`（如本地 Oracle Thin/版本问题），便于联调。
  */
@@ -81,23 +99,55 @@ async function runSqlQuerySkillWithOptionalFallback(
   }
 }
 
-function pickSelectedSkillPlans(
-  input: DataQueryInput
-): Array<{ skillId: string; dbClientKey?: string }> {
-  const steps = input.planningTask?.skillSteps ?? [];
-  const plans: Array<{ skillId: string; dbClientKey?: string }> = [];
+type PlannedStep = {
+  stepId?: string;
+  capabilityId: string;
+  skillId: string;
+  executionSkillId?: string;
+  dbClientKey?: string;
+  missingParams?: string[];
+  executable?: boolean;
+};
+
+function pickSelectedSkillPlansFromTask(
+  task: DataQueryInput["planningTask"]
+): PlannedStep[] {
+  const steps = task?.skillSteps ?? [];
+  const plans: PlannedStep[] = [];
   for (const s of steps) {
-    if (s.executable === false) continue;
     const id = s.selectedCapability?.id?.trim();
     if (!id) continue;
     plans.push({
-      skillId: id,
-      dbClientKey: s.dbClientKey?.trim() || undefined
+      stepId: s.stepId,
+      capabilityId: id,
+      skillId: s.selectedCapability?.ownerSkillId?.trim() || "",
+      executionSkillId: s.executionSkillId?.trim() || undefined,
+      dbClientKey: s.dbClientKey?.trim() || undefined,
+      missingParams: s.missingParams,
+      executable: s.executable
     });
   }
+  return plans;
+}
+
+function pickSelectedSkillPlans(
+  input: DataQueryInput
+): PlannedStep[] {
+  const plans = pickSelectedSkillPlansFromTask(input.planningTask);
   if (plans.length > 0) return plans;
   const fallback = input.targetIntent?.trim();
-  return fallback ? [{ skillId: fallback }] : [];
+  return fallback ? [{ capabilityId: fallback, skillId: fallback }] : [];
+}
+
+function pickPlanningTaskQueue(
+  input: DataQueryInput
+): Array<NonNullable<DataQueryInput["planningTask"]>> {
+  if (input.planningTasks?.length) {
+    return input.planningTasks.filter(
+      (t): t is NonNullable<DataQueryInput["planningTask"]> => !!t
+    );
+  }
+  return input.planningTask ? [input.planningTask] : [];
 }
 
 function extractJsonObject(text: string): string {
@@ -116,9 +166,13 @@ async function buildSqlBySkillWithLlm(input: {
   skillId: string;
   skillDetailJson: string;
   preferredDbClientKey?: string;
+  priorTables?: Array<{ name?: string; meta?: Record<string, unknown>; rows: Array<Record<string, unknown>> }>;
+  priorRows?: Array<Record<string, unknown>>;
+  taskGoal?: string;
+  stepId?: string;
 }): Promise<SqlSkillInput> {
   const llm = getModel();
-  const prompt = [
+  const promptBase = [
     "你是数据查询 SQL 生成器。",
     "任务：根据用户问题、槽位、skill 详情，输出可执行的参数化 SQL 输入。",
     "必须仅输出 JSON 对象，不要 markdown，不要解释。",
@@ -127,27 +181,75 @@ async function buildSqlBySkillWithLlm(input: {
     "- 必须使用参数化 SQL，禁止拼接用户输入到 SQL 文本。",
     "- dbClientKey 不能为空。",
     `- 若已给定 preferredDbClientKey，请优先使用：${input.preferredDbClientKey ?? "（未指定）"}`,
+    "- 可使用 priorRows/priorTables 中的上游结果作为本步过滤条件或关联条件。",
+    "- 【硬约束1】SQL 只能引用 skill详情中明确出现的表/视图/字段；禁止编造对象名（例如 members 这类未在 skill详情出现的表名）。",
+    "- 【硬约束2】若 skill详情或库规范要求 schema 前缀，必须使用完整对象名（如 SCHEMA.TABLE）；不得省略前缀。",
+    "- 【硬约束3】SELECT 字段清单与字段别名必须与 skill详情保持一致；禁止新增字段、改名别名或调整含义。",
     "- label 与 purpose 默认使用 skillId。",
     "",
+    `taskGoal: ${input.taskGoal ?? ""}`,
+    `stepId: ${input.stepId ?? ""}`,
     `skillId: ${input.skillId}`,
     `用户输入: ${input.userInput}`,
     `槽位: ${JSON.stringify(input.resolvedSlots ?? {}, null, 2)}`,
+    `上游 rows: ${JSON.stringify(input.priorRows ?? [], null, 2)}`,
+    `上游 tables: ${JSON.stringify(input.priorTables ?? [], null, 2)}`,
     `skill详情: ${input.skillDetailJson}`
   ].join("\n");
-  const raw = await llm.invoke([new SystemMessage("你只返回 JSON。"), new HumanMessage(prompt)]);
-  const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
-  const jsonText = extractJsonObject(content);
-  const parsed = JSON.parse(jsonText) as Record<string, unknown>;
-  const sql = String(parsed.sql ?? "").trim();
-  if (!sql) throw new Error("LLM 生成 SQL 为空");
+
+  const invokeAndParse = async (prompt: string): Promise<{ parsed: Record<string, unknown>; content: string }> => {
+    const raw = await llm.invoke([new SystemMessage("你只返回 JSON。"), new HumanMessage(prompt)]);
+    const content =
+      typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const jsonText = extractJsonObject(content);
+    return { parsed: JSON.parse(jsonText) as Record<string, unknown>, content };
+  };
+
+  let first: { parsed: Record<string, unknown>; content: string };
+  try {
+    first = await invokeAndParse(promptBase);
+  } catch (e) {
+    throw new Error(
+      `LLM 生成 SQL 失败（首轮解析失败）：${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+  let sql = String(first.parsed.sql ?? "").trim();
+  if (!sql) {
+    const retryPrompt = [
+      promptBase,
+      "",
+      "上轮返回未给出有效 sql。",
+      "重试要求（必须遵守）：",
+      "- 必须返回非空 `sql` 字段；",
+      "- 若不确定，优先复用 skill详情中的原始 SQL 模板并仅做参数化绑定；",
+      "- 仍只返回 JSON 对象。"
+    ].join("\n");
+    const second = await invokeAndParse(retryPrompt);
+    sql = String(second.parsed.sql ?? "").trim();
+    if (!sql) {
+      throw new Error(
+        `LLM 生成 SQL 为空（重试后仍为空），modelContent=${second.content.slice(0, 400)}`
+      );
+    }
+    const normalizedRetry = {
+      sql,
+      params: Array.isArray(second.parsed.params) ? second.parsed.params : [],
+      dbClientKey:
+        String(second.parsed.dbClientKey ?? "").trim() ||
+        input.preferredDbClientKey?.trim() ||
+        "member",
+      purpose: String(second.parsed.purpose ?? "").trim() || input.skillId
+    };
+    return normalizedRetry;
+  }
   return {
     sql,
-    params: Array.isArray(parsed.params) ? parsed.params : [],
+    params: Array.isArray(first.parsed.params) ? first.parsed.params : [],
     dbClientKey:
-      String(parsed.dbClientKey ?? "").trim() ||
+      String(first.parsed.dbClientKey ?? "").trim() ||
       input.preferredDbClientKey?.trim() ||
       "member",
-    purpose: String(parsed.purpose ?? "").trim() || input.skillId
+    purpose: String(first.parsed.purpose ?? "").trim() || input.skillId
   };
 }
 
@@ -201,13 +303,180 @@ builder.addNode("domain_router", (state: DataQueryState) => {
   return { ...state, queryDomain, queryIntent };
 });
 
-builder.addNode("execute_query", async (state: DataQueryState) => {
+builder.addNode("generate_sql", async (state: DataQueryState) => {
   log(
     "[DataQuery]",
-    "node execute_query 开始",
+    "node generate_sql 开始",
     `queryDomain=${state.queryDomain ?? ""} queryIntent=${state.queryIntent ?? ""}`
   );
   const demoDb = resolveDbClientByKey("default");
+  const taskQueue = pickPlanningTaskQueue(state.input);
+
+  if (
+    !state.input.sqlQueries?.length &&
+    !state.input.sqlQuery?.sql?.trim() &&
+    taskQueue.length > 0
+  ) {
+    const tPlan = Date.now();
+    const tables: Array<{
+      name?: string;
+      meta?: Record<string, unknown>;
+      rows: Array<Record<string, unknown>>;
+    }> = [];
+    const steps: Array<{ kind: "sql"; id?: string; sql: string; params?: unknown[] }> = [];
+    const stepErrors: Record<string, string> = {};
+    let priorTables = state.input.sharedContext?.priorTables ?? [];
+    let priorRows = state.input.sharedContext?.priorRows ?? [];
+
+    for (let ti = 0; ti < taskQueue.length; ti++) {
+      const task = taskQueue[ti]!;
+      const taskId = task.taskId?.trim() || `task_${ti + 1}`;
+      const taskPlans = pickSelectedSkillPlansFromTask(task);
+
+      if (task.executable === false) {
+        stepErrors[`${taskId}:task_guard`] = "task.executable=false（跳过该任务）";
+        continue;
+      }
+      if (taskPlans.length === 0) {
+        stepErrors[`${taskId}:task_guard`] = "该任务未选出可执行 capability";
+        continue;
+      }
+
+      let taskFailed = false;
+      for (let si = 0; si < taskPlans.length; si++) {
+        const plan = taskPlans[si]!;
+        const stepKey = `${taskId}:${plan.stepId || plan.skillId || `step_${si + 1}`}`;
+        let lastSqlPreview = "";
+        let lastParamsCount = 0;
+        if (plan.executable === false || (plan.missingParams?.length ?? 0) > 0) {
+          stepErrors[stepKey] = `步骤不可执行，缺参: ${(plan.missingParams ?? []).join(",")}`;
+          taskFailed = true;
+          break;
+        }
+        if (
+          plan.executionSkillId &&
+          plan.executionSkillId !== "sql_query" &&
+          plan.executionSkillId !== "sql-query"
+        ) {
+          stepErrors[stepKey] = `executionSkillId=${plan.executionSkillId}，当前仅支持 sql_query`;
+          taskFailed = true;
+          break;
+        }
+        try {
+          const skillDetailJson = await runInvokeSkillTool(plan.skillId);
+          const sqlQueryInput = await buildSqlBySkillWithLlm({
+            userInput: state.input.userInput,
+            resolvedSlots: {
+              ...(state.input.resolvedSlots ?? {}),
+              ...(task.resolvedSlots ?? {})
+            },
+            skillId: plan.skillId,
+            skillDetailJson,
+            preferredDbClientKey: plan.dbClientKey,
+            priorRows,
+            priorTables,
+            taskGoal: task.goal,
+            stepId: plan.stepId
+          });
+          sqlQueryInput.sql = normalizeSqlPlaceholdersByDbKey(
+            sqlQueryInput.sql,
+            sqlQueryInput.dbClientKey
+          );
+          lastSqlPreview = sqlQueryInput.sql;
+          lastParamsCount = sqlQueryInput.params?.length ?? 0;
+          const sqlResultText = await runSqlQueryTool(sqlQueryInput);
+          const sqlResult = JSON.parse(sqlResultText) as SqlQueryResult;
+
+          steps.push({
+            kind: "sql" as const,
+            id: stepKey,
+            sql: sqlQueryInput.sql,
+            params: sqlQueryInput.params
+          });
+          const table = {
+            name: stepKey,
+            meta: {
+              dbClientKey: sqlQueryInput.dbClientKey ?? "member",
+              taskId,
+              stepId: plan.stepId,
+              skillId: plan.skillId
+            },
+            rows: sqlResult.rows
+          };
+          tables.push(table);
+          priorTables = [...priorTables, table].slice(-12);
+          priorRows = [...priorRows, ...sqlResult.rows].slice(-300);
+          log(
+            "[DataQuery]",
+            "串行子任务单步完成",
+            `task=${ti + 1}/${taskQueue.length} step=${si + 1}/${taskPlans.length} stepKey=${stepKey} rowCount=${sqlResult.rowCount}`
+          );
+        } catch (e) {
+          stepErrors[stepKey] = e instanceof Error ? e.message : String(e);
+          log(
+            "[DataQuery]",
+            "串行子任务单步失败",
+            `stepKey=${stepKey} err=${stepErrors[stepKey]?.slice(0, 200)}`
+          );
+          if (lastSqlPreview) {
+            log(
+              "[DataQuery]",
+              "失败 SQL 预览",
+              `stepKey=${stepKey} paramsCount=${lastParamsCount} sql=${lastSqlPreview.slice(0, 600)}`
+            );
+          }
+          taskFailed = true;
+          break; // 子任务内 fail-fast
+        }
+      }
+      if (taskFailed) {
+        log("[DataQuery]", "子任务失败，继续下一任务", `taskId=${taskId}`);
+      }
+    }
+
+    const hasTables = tables.length > 0;
+    const hasErr = Object.keys(stepErrors).length > 0;
+    log(
+      "[DataQuery]",
+      "planningTasks 串行链路完成",
+      `tasks=${taskQueue.length} successTables=${tables.length} failedSteps=${Object.keys(stepErrors).length}`,
+      tPlan
+    );
+    if (!hasTables && hasErr) {
+      return {
+        ...state,
+        executionPlan: { steps },
+        result: {
+          domain: state.queryDomain ?? defaultQueryDomainTag(),
+          intent: taskQueue[0]?.taskId ?? "unknown",
+          dataType: "table" as const,
+          meta: {
+            source: "planning_tasks_serial",
+            error: "串行任务全部失败",
+            stepErrors
+          },
+          rows: []
+        }
+      };
+    }
+    return {
+      ...state,
+      executionPlan: { steps },
+      result: {
+        domain: state.queryDomain ?? defaultQueryDomainTag(),
+        intent: taskQueue[0]?.taskId ?? "unknown",
+        dataType: tables.length > 1 ? ("tables" as const) : ("table" as const),
+        meta: {
+          source: "planning_tasks_serial",
+          ...(hasErr ? { stepErrors } : {}),
+          taskCount: taskQueue.length
+        },
+        rows: tables.length === 1 ? tables[0]!.rows : [],
+        ...(tables.length > 1 ? { tables } : {})
+      }
+    };
+  }
+
   const selectedSkillPlans = pickSelectedSkillPlans(state.input).slice(0, MAX_SQL_QUERIES);
 
   if (
@@ -237,6 +506,10 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
             skillDetailJson,
             preferredDbClientKey: plan.dbClientKey
           });
+          sqlQueryInput.sql = normalizeSqlPlaceholdersByDbKey(
+            sqlQueryInput.sql,
+            sqlQueryInput.dbClientKey
+          );
           const sqlResultText = await runSqlQueryTool(sqlQueryInput);
           const sqlResult = JSON.parse(sqlResultText) as SqlQueryResult;
           steps.push({
@@ -257,6 +530,11 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
           );
         } catch (e) {
           stepErrors[skillId] = e instanceof Error ? e.message : String(e);
+          log(
+            "[DataQuery]",
+            "按 planningTask/skillId 执行单步失败",
+            `skillId=${skillId} err=${stepErrors[skillId]?.slice(0, 200)}`
+          );
         }
       }
 
@@ -501,7 +779,7 @@ builder.addNode("execute_query", async (state: DataQueryState) => {
 });
 
 builder.addEdge(START, "domain_router" as any);
-builder.addEdge("domain_router" as any, "execute_query" as any);
+builder.addEdge("domain_router" as any, "generate_sql" as any);
 
 const dataQueryApp = builder.compile() as unknown as Runnable<
   { input: DataQueryInput },

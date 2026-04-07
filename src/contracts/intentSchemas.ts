@@ -36,8 +36,8 @@ export function buildIntentResultSchema(config: SystemConfig) {
     skillsDomainId: z.string(),
     /** 技能分段（如 member / ecommerce），用于缩小候选能力集合 */
     skillsSegmentId: z.string().optional(),
-    /** 披露阶段得到的候选能力 id 列表（可多项） */
-    disclosedSkillIds: z.array(z.string()).optional(),
+    /** 披露阶段得到的候选能力/入口 id 列表（可多项） */
+    disclosedCapabilityIds: z.array(z.string()).optional(),
     /**
      * 收敛后的最终能力入口（通常是单个）。
      * - `kind=skill`：可执行技能；
@@ -46,7 +46,9 @@ export function buildIntentResultSchema(config: SystemConfig) {
     selectedCapability: z
       .object({
         kind: z.enum(["skill", "guide"]),
-        id: z.string()
+        id: z.string(),
+        /** 该能力入口归属的 skill/guide id（用于定位来源与执行映射） */
+        ownerSkillId: z.string().optional()
       })
       .optional(),
 
@@ -58,6 +60,8 @@ export function buildIntentResultSchema(config: SystemConfig) {
     missingParams: z.array(z.string()).optional(),
     /** 该步骤是否可直接执行（模型自评 + 参数判定结果） */
     executable: z.boolean().optional(),
+    /** 本步骤最终执行所用技能 id（如 sql_query），用于区分能力入口与执行实现 */
+    executionSkillId: z.string().optional(),
     /** 本步骤建议使用的数据库连接键（传递给 sql_query/dbClientManager，如 member/default） */
     dbClientKey: z.string().optional(),
     /** 预期输出形态，供后续节点做展示与衔接 */

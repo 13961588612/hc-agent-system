@@ -83,6 +83,101 @@ ${systemContext}
 `;
 }
 
+function parseIntentPayloadFromModelContent(content: unknown): unknown {
+  if (typeof content === "string") {
+    const s = content.trim();
+    if (!s) return content;
+    try {
+      return JSON.parse(s);
+    } catch {
+      // 兼容前后包裹说明文字的场景，尝试截取首个 JSON 对象
+      const first = s.indexOf("{");
+      const last = s.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try {
+          return JSON.parse(s.slice(first, last + 1));
+        } catch {
+          return content;
+        }
+      }
+      return content;
+    }
+  }
+  return content;
+}
+
+function normalizeIntentPayloadForSchema(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object") return payload;
+  const obj = payload as Record<string, unknown>;
+
+  // 兼容 replySuggestion 返回数组的情况（schema 当前要求 string）
+  const normalizeSuggestion = (v: unknown): string | undefined => {
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) {
+      const parts = v
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter((x) => x.length > 0);
+      if (parts.length > 0) return parts.join(" / ");
+    }
+    return undefined;
+  };
+
+  const rootSuggestion = normalizeSuggestion(obj.replySuggestion);
+  if (rootSuggestion) obj.replySuggestion = rootSuggestion;
+
+  if (Array.isArray(obj.intents)) {
+    obj.intents = obj.intents.map((x) => {
+      if (!x || typeof x !== "object") return x;
+      const item = { ...(x as Record<string, unknown>) };
+      const sug = normalizeSuggestion(item.replySuggestion);
+      if (sug) item.replySuggestion = sug;
+      return item;
+    });
+  }
+
+  // 兼容旧字段 disclosedSkillIds -> disclosedCapabilityIds
+  if (Array.isArray(obj.planningTasks)) {
+    obj.planningTasks = obj.planningTasks.map((t) => {
+      if (!t || typeof t !== "object") return t;
+      const task = { ...(t as Record<string, unknown>) };
+      if (Array.isArray(task.skillSteps)) {
+        task.skillSteps = task.skillSteps.map((s) => {
+          if (!s || typeof s !== "object") return s;
+          const step = { ...(s as Record<string, unknown>) };
+          if (
+            step.disclosedCapabilityIds === undefined &&
+            Array.isArray(step.disclosedSkillIds)
+          ) {
+            step.disclosedCapabilityIds = step.disclosedSkillIds;
+          }
+          if (
+            step.selectedCapability &&
+            typeof step.selectedCapability === "object"
+          ) {
+            const sc = {
+              ...(step.selectedCapability as Record<string, unknown>)
+            };
+            if (
+              sc.ownerSkillId === undefined &&
+              typeof sc.skillId === "string" &&
+              sc.skillId.trim()
+            ) {
+              sc.ownerSkillId = sc.skillId.trim();
+            }
+            delete sc.skillId;
+            step.selectedCapability = sc;
+          }
+          delete step.disclosedSkillIds;
+          return step;
+        });
+      }
+      return task;
+    });
+  }
+
+  return obj;
+}
+
 async function runIntentWithSkillTools(
   systemInstruction: string,
   userPrompt: string
@@ -172,6 +267,7 @@ export async function runIntentClassifyAgent(
   state: OrchestratorState
 ): Promise<Pick<OrchestratorState, "intentResult" | "highLevelDomain">> {
   const userInput = state.input.userInput;
+  let lastRawMsg: { content?: unknown; tool_calls?: unknown } | undefined;
   const tAll = Date.now();
   log(
     "[Intent]",
@@ -204,14 +300,51 @@ export async function runIntentClassifyAgent(
     ]);
     log("[Intent]", "LLM invoke 结束（原始响应已收到）", undefined, tLlm);
     const rawMsg = raw as { content?: unknown; tool_calls?: unknown };
+    lastRawMsg = rawMsg;
     log(
       "[Intent]",
       "LLM 原始返回（content + tool_calls）",
         JSON.stringify(rawMsg, null, 2)
     );
-    const intent = getIntentResultSchema().parse(rawMsg.content);
+    const normalized = normalizeIntentPayloadForSchema(
+      parseIntentPayloadFromModelContent(rawMsg.content)
+    );
+    const intent = getIntentResultSchema().parse(normalized);
     return { intentResult: intent };
   } catch (e) {
-    return { intentResult: undefined };
+    const msg = e instanceof Error ? e.message : String(e);
+    log(
+      "[Intent]",
+      "classify 失败（将返回 blocked 兜底）",
+      `${msg}${lastRawMsg ? ` | raw=${JSON.stringify(lastRawMsg).slice(0, 1200)}` : ""}`,
+      tAll
+    );
+    return {
+      intentResult: {
+        intents: [
+          {
+            intent: "unknown",
+            goal: "意图识别失败，等待用户补充",
+            executable: false,
+            needsClarification: true,
+            missingSlots: ["intent_parse_failed"]
+          }
+        ],
+        planPhase: "blocked",
+        planningTasks: [
+          {
+            taskId: "task-intent-fallback",
+            systemModuleId: "unknown",
+            goal: "恢复意图识别并收集必要信息",
+            missingSlots: ["intent_parse_failed"],
+            executable: false
+          }
+        ],
+        needsClarification: true,
+        clarificationQuestion:
+          "我这边暂时无法稳定解析你的请求。请补充：你要查询的业务对象、时间范围、以及可用标识（如会员号/手机号/订单号）。",
+        replySuggestion: "请提供更具体的查询条件后我再继续。"
+      }
+    };
   }
 }

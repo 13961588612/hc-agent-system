@@ -118,25 +118,69 @@ export interface DataQueryInput {
   env: EnvConfig;
   sqlQuery?: DataQuerySqlItem;
   sqlQueries?: DataQuerySqlItem[];
+  /**
+   * 串行任务共享上下文（仅结构化数据，避免注入过大文本）。
+   * - priorTables: 前序子任务产出的表集合（可多表）
+   * - priorRows: 便捷平铺行（通常取 priorTables 的拼接结果）
+   */
+  sharedContext?: {
+    priorTables?: DataTable[];
+    priorRows?: Array<Record<string, unknown>>;
+  };
   /** 意图规划阶段下发的当前 data_query 子任务（用于 skill 链路执行） */
   planningTask?: {
     taskId?: string;
     goal?: string;
     systemModuleId?: string;
+    resolvedSlots?: Record<string, unknown>;
+    missingSlots?: string[];
+    executable?: boolean;
     skillSteps?: Array<{
       stepId?: string;
       skillsDomainId?: string;
       skillsSegmentId?: string;
-      disclosedSkillIds?: string[];
-      selectedCapability?: { kind?: "skill" | "guide"; id?: string };
+      disclosedCapabilityIds?: string[];
+      selectedCapability?: {
+        kind?: "skill" | "guide";
+        id?: string;
+        ownerSkillId?: string;
+      };
       requiredParams?: string[];
       providedParams?: Record<string, unknown>;
       missingParams?: string[];
       executable?: boolean;
+      executionSkillId?: string;
       dbClientKey?: string;
       expectedOutput?: "table" | "object" | "summary";
     }>;
   };
+  /** 意图规划阶段下发的 data_query 子任务队列（按顺序串行执行） */
+  planningTasks?: Array<{
+    taskId?: string;
+    goal?: string;
+    systemModuleId?: string;
+    resolvedSlots?: Record<string, unknown>;
+    missingSlots?: string[];
+    executable?: boolean;
+    skillSteps?: Array<{
+      stepId?: string;
+      skillsDomainId?: string;
+      skillsSegmentId?: string;
+      disclosedCapabilityIds?: string[];
+      selectedCapability?: {
+        kind?: "skill" | "guide";
+        id?: string;
+        ownerSkillId?: string;
+      };
+      requiredParams?: string[];
+      providedParams?: Record<string, unknown>;
+      missingParams?: string[];
+      executable?: boolean;
+      executionSkillId?: string;
+      dbClientKey?: string;
+      expectedOutput?: "table" | "object" | "summary";
+    }>;
+  }>;
   /** 意图节点解析槽位，子图优先用于路由与演示 SQL 参数 */
   resolvedSlots?: Record<string, unknown>;
   /** 上一阶段透传的业务域 id（建议对齐 system domains / 模块 id） */

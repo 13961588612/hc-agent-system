@@ -60,6 +60,11 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
         { configurable: { thread_id: threadId } }
       );
       log("[WeCom-WS]", "runOrchestratorGraph 返回", undefined, tAll);
+      log(
+        "[WeCom-WS]",
+        "finalAnswer JSON",
+        JSON.stringify(result).slice(0, 2000)
+      );
 
       const replyText = formatFinalAnswerForChannel(result);
       const streamId = generateReqId("stream");

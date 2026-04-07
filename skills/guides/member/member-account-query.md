@@ -31,18 +31,6 @@ capabilities:
       sqlTemplateRef: inline
       confirmBeforeRun: false
       minConfidence: 0.72
-  - id: member.points_account.by_member_card_no
-    description: 已知会员卡号时，查询积分账户快照。
-    params:
-      required:
-        - name: memberCardNos
-          type: string[]
-          description: 会员卡号列表，与 SQL 绑定一一对应，最多 10 个
-    execution:
-      skillId: sql_query
-      sqlTemplateRef: inline
-      confirmBeforeRun: false
-      minConfidence: 0.72
   - id: member.points_account.ledger_recent
     description: 查询会员最近积分流水（按会员编号）。
     params:
@@ -113,11 +101,11 @@ capabilities:
 SELECT
   h.hyid AS vipId,
   b.hyk_no AS memberCardNo,
-  NVL(h.wcljf, 0) AS totalPoints
+  nvl(sum(NVL(h.wcljf, 0)),0) AS totalPoints
 FROM bfcrm8.hyk_mdjf h,bfcrm8.hyk_hyxx b
 WHERE h.hyid IN (/* N 个绑定占位符，N ≤ 10 */)
 and h.hyid=b.hyid
-  group by h.hyid
+group by h.hyid,b.hyk_no
 ```
 
 **输出格式**：`table`

@@ -128,6 +128,11 @@ export function startWeComHttpServer(cfg: WeComChannelConfig, env: EnvConfig): v
         { configurable: { thread_id: threadId } }
       );
       log("[WeCom-HTTP]", "runOrchestratorGraph 返回", undefined, tAll);
+      log(
+        "[WeCom-HTTP]",
+        "finalAnswer JSON",
+        JSON.stringify(result).slice(0, 2000)
+      );
 
       const replyText = formatFinalAnswerForChannel(result);
 

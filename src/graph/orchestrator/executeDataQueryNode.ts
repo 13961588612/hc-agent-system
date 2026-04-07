@@ -4,8 +4,10 @@ import { writeArtifactInput } from "../../lib/artifacts/fsArtifacts.js";
 import type { DataQueryInput, SubTaskEnvelope, SubTaskResult } from "../../contracts/types.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
+import type { DataQueryResult } from "../../contracts/types.js";
 import {
   getBestDataQueryIntent,
+  getPlanningTasksByModule,
   getPrimaryPlanningTask,
   isPlanningReady
 } from "./intentSelectors.js";
@@ -17,6 +19,7 @@ export async function executeDataQueryNode(
   const t0 = Date.now();
   const ir = state.intentResult;
   const dq = getBestDataQueryIntent(ir);
+  const moduleTasks = getPlanningTasksByModule(ir, "data_query");
   const pt = getPrimaryPlanningTask(ir, "data_query");
   if (
     !ir ||
@@ -68,18 +71,53 @@ export async function executeDataQueryNode(
             stepId: s.stepId,
             skillsDomainId: s.skillsDomainId,
             skillsSegmentId: s.skillsSegmentId,
-            disclosedSkillIds: s.disclosedSkillIds,
+            disclosedCapabilityIds: s.disclosedCapabilityIds,
             selectedCapability: s.selectedCapability
-              ? { kind: s.selectedCapability.kind, id: s.selectedCapability.id }
+              ? {
+                  kind: s.selectedCapability.kind,
+                  id: s.selectedCapability.id,
+                  ownerSkillId: s.selectedCapability.ownerSkillId
+                }
               : undefined,
             requiredParams: s.requiredParams,
             providedParams: s.providedParams,
             missingParams: s.missingParams,
             executable: s.executable,
+            executionSkillId: s.executionSkillId,
             dbClientKey: s.dbClientKey,
             expectedOutput: s.expectedOutput
           }))
         };
+      }
+      if (moduleTasks.length > 0) {
+        base.planningTasks = moduleTasks.map((t) => ({
+          taskId: t.taskId,
+          goal: t.goal,
+          systemModuleId: t.systemModuleId,
+          resolvedSlots: t.resolvedSlots,
+          missingSlots: t.missingSlots,
+          executable: t.executable,
+          skillSteps: t.skillSteps?.map((s) => ({
+            stepId: s.stepId,
+            skillsDomainId: s.skillsDomainId,
+            skillsSegmentId: s.skillsSegmentId,
+            disclosedCapabilityIds: s.disclosedCapabilityIds,
+            selectedCapability: s.selectedCapability
+              ? {
+                  kind: s.selectedCapability.kind,
+                  id: s.selectedCapability.id,
+                  ownerSkillId: s.selectedCapability.ownerSkillId
+                }
+              : undefined,
+            requiredParams: s.requiredParams,
+            providedParams: s.providedParams,
+            missingParams: s.missingParams,
+            executable: s.executable,
+            executionSkillId: s.executionSkillId,
+            dbClientKey: s.dbClientKey,
+            expectedOutput: s.expectedOutput
+          }))
+        }));
       }
       const slots = dq.resolvedSlots;
       const planSlots = pt?.resolvedSlots;
@@ -132,6 +170,7 @@ export async function executeDataQueryNode(
       [taskId]: {
         status: subResult.status,
         summary: subResult.summary,
+        data: subResult.data as DataQueryResult | undefined,
         artifacts: subResult.artifacts?.map((a) => ({
           id: a.id,
           path: a.path,

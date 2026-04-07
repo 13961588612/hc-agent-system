@@ -46,3 +46,19 @@ segments:
   - id: common
     title: 通用能力
     facets: [skills]
+
+# 渠道回复展示配置
+channelReply:
+  table:
+    # 表格最多展示行数（超出会提示已截断）
+    maxRows: 20
+    # 表格最多展示列数（按首行字段顺序截断）
+    maxColumns: 8
+    # 表头中文映射（未命中时使用：列N(原字段名)）
+    headerZhMap:
+      member_code: 会员编码
+      member_name: 会员姓名
+      mobile: 手机号
+      level_name: 会员等级
+      points: 积分
+      created_at: 创建时间

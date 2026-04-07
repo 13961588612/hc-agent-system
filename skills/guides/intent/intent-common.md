@@ -31,26 +31,29 @@ tags:
   - 若候选仍不清晰，再调用 `invoke_skill` 获取关键能力细节（入参、约束、适用条件）后再落意图。
   - 对相关候选能力应逐个查看详情，不漏关键 skill；再进行意图拆解与计划。
 - 输出中的 `skillId` / `selectedCapability.id` 等标识必须来自已查询到的 skill 详情，禁止凭空捏造。
-- `intents[].targetEntryId`、`domainId`、`segmentId` 要与 tool 返回的能力上下文保持一致；不确定时降低置信度并走澄清。
+- `intents[].domainId`、`segmentId` 与 `planningTasks[].skillSteps[].selectedCapability` 要与 tool 返回的能力上下文保持一致；不确定时降低置信度并走澄清。
 
 
-#### 第三步：上下文锚点补齐（domain + segment + entry）
+#### 第三步：上下文锚点补齐（domain + segment + selectedCapability）
 - 意图拆分应按 `system-module` 进行（对应 `planningTasks[].systemModuleId`）。
-- 对可执行或接近可执行的意图，补齐：
+- 对可执行或接近可执行的任务步骤，补齐：
   - `domainId`
   - `segmentId`
-  - `targetEntryId`
+  - `selectedCapability.id`
 - 这些字段用于后续路由、能力收敛、执行节点透传。
 
 #### 第四步：规划拆分（planningTasks）
 - 输出 `planningTasks[]`，每个 task 对应一个可执行目标。
+- 多个子任务按数组顺序串行执行：`task-1 -> task-2 -> ...`，不要并行假设。
 - task 内通过 `skillSteps[]` 描述：候选能力、选中能力、参数状态、可执行性。
-- `skillSteps[].disclosedSkillIds` 必须来自本轮 tool 查询结果；禁止凭空编造能力 id。
+- `skillSteps[].disclosedCapabilityIds` 必须来自本轮 tool 查询结果；禁止凭空编造能力 id。
 - `skillSteps[].selectedCapability` 必须基于已披露候选收敛得到；若未完成工具核验，不应标记 `executable=true`。
 - 若可判断数据源，填写 `skillSteps[].dbClientKey`（如 `member`/`default`）；无法判断时可留空由执行层兜底。
+- 每个可执行 step 的执行链路固定为两段：`invoke_skill` 取详情/约束并生成 SQL，再用 `sql_query` 执行该 SQL。
 - 规划时必须体现步骤先后关系：当某个 capability 缺少参数，但这些参数可由另一个 capability 的结果补齐时，应先安排“前置 capability”执行，再执行当前 capability。
 - 对依赖上游结果的 step：当前轮应将其标记为 `executable=false`，并在 `missingParams` 中明确缺失项；待前置 step 完成后再切换为可执行。
 - `skillSteps[]` 的顺序应与实际执行顺序一致：先“产出依赖参数”的步骤，后“消费依赖参数”的步骤。
+- 前一个子任务执行后产出的 `rows/tables` 会作为后续子任务可见上下文；后续 task 设计时可显式依赖这些结果。
 
 #### 第五步：执行门闸判定
 - 若任一关键任务缺参：`planPhase = "blocked"` 且 `needsClarification = true`。
@@ -69,13 +72,15 @@ tags:
 - `goal`: 当前子意图要完成的目标。
 - `resolvedSlots` / `missingSlots`: 参数充足性依据。
 - `domainId` + `segmentId`: 传递到下一环节的定位上下文。
-- `targetEntryId`: 下一步可直接使用的能力入口锚点。
+- `selectedCapability.id`: 下一步可直接使用的能力入口锚点（位于 `planningTasks[].skillSteps[]`）。
 - `executable` / `needsClarification`: 子意图级执行状态。
 
 #### 2.2 规划层（`planningTasks[]`）
 - `taskId`, `systemModuleId`, `goal`: 任务骨架。
 - `skillSteps[]`: 从“候选能力”到“选中能力”的收敛过程。
+- `selectedCapability.ownerSkillId`: 能力入口归属的 skill/guide id（用于日志定位与执行映射）。
 - `requiredParams` / `providedParams` / `missingParams`: 参数完整性。
+- `executionSkillId`: 当前 step 最终执行技能 id（如 `sql_query`），与 `selectedCapability.id`（能力入口）区分。
 - `dbClientKey`: 当前 step 推荐的数据源连接键（如 `member` / `default`），供执行节点透传给 SQL 执行器。
 - `expectedOutput`: 预期产出形态（`table|object|summary`）。
 
@@ -94,7 +99,7 @@ tags:
 - 多任务缺参时，各 `planningTasks` 上的 `missingSlots` / `skillSteps[].missingParams` 应去重且可汇总到根级 `clarificationQuestion`（可选）。
 
 #### 3.2 能力披露与收敛场景
-- 先给 `disclosedSkillIds`（候选），再给 `selectedCapability`（收敛）。
+- 先给 `disclosedCapabilityIds`（候选），再给 `selectedCapability`（收敛）。
 - 不确定时不要编造能力 id，走澄清路径更优。
 
 #### 3.3 缺参与澄清场景
@@ -103,7 +108,7 @@ tags:
 
 #### 3.4 可执行场景
 - 至少一个 task 明确 `executable=true`。
-- 必须提供可落地入口：`targetEntryId` 或 `selectedCapability.id`。
+- 必须提供可落地入口：`selectedCapability.id`。
 
 ---
 
@@ -119,7 +124,7 @@ tags:
 - `intents.length >= 1`
 - `planningTasks.length >= 1`
 - `planPhase` 与 `needsClarification` 语义一致
-- 至少一条意图包含可传递上下文：`domainId + segmentId + targetEntryId`（可执行场景）
+- 至少一条任务步骤包含可传递执行入口：`selectedCapability.id`（可执行场景）
 - `planningTasks` 内缺参与 `planPhase` / `needsClarification` 一致
 
 ---
@@ -140,7 +145,6 @@ tags:
       },
       "domainId": "data_query",
       "segmentId": "member",
-      "targetEntryId": "member.points_account.ledger_recent",
       "missingSlots": []
     }
   ],
@@ -161,13 +165,14 @@ tags:
           "stepId": "step-1",
           "skillsDomainId": "data_query",
           "skillsSegmentId": "member",
-          "disclosedSkillIds": [
+          "disclosedCapabilityIds": [
             "member.points_account.by_vip_id",
             "member.points_account.ledger_recent"
           ],
           "selectedCapability": {
             "kind": "guide",
-            "id": "member.points_account.ledger_recent"
+            "id": "member.points_account.ledger_recent",
+            "ownerSkillId": "guide-member-account"
           },
           "requiredParams": ["vipIds"],
           "providedParams": {
@@ -175,6 +180,7 @@ tags:
           },
           "missingParams": [],
           "executable": true,
+          "executionSkillId": "sql_query",
           "dbClientKey": "member",
           "expectedOutput": "table"
         }
@@ -207,7 +213,8 @@ tags:
           "skillsSegmentId": "member",
           "selectedCapability": {
             "kind": "guide",
-            "id": "member.lookup.by_phone"
+            "id": "member.lookup.by_phone",
+            "ownerSkillId": "guide-member-profile"
           },
           "requiredParams": ["phone"],
           "providedParams": { "phone": "13800000000" },
@@ -221,12 +228,14 @@ tags:
           "skillsSegmentId": "member",
           "selectedCapability": {
             "kind": "guide",
-            "id": "member.profile.by_user_id"
+            "id": "member.profile.by_user_id",
+            "ownerSkillId": "guide-member-profile"
           },
           "requiredParams": ["vipIds"],
           "providedParams": {},
           "missingParams": ["vipIds"],
           "executable": false,
+          "executionSkillId": "sql_query",
           "dbClientKey": "member",
           "expectedOutput": "table"
         }
