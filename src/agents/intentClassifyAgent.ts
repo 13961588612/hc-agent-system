@@ -8,10 +8,16 @@ import {
   listSkillsSegments,
   listSystemModuleDomains
 } from "../config/systemConfig.js";
-import { getIntentLlmTimeoutMs } from "../config/intentPolicy.js";
+import {
+  getIntentInvokeBodyMaxChars,
+  getIntentLlmTimeoutMs,
+  getIntentToolMaxRounds,
+  shouldLogIntentRawLlm
+} from "../config/intentPolicy.js";
 import { log } from "../lib/log/log.js";
 import { getModel } from "../model/index.js";
 import { getGuide } from "../lib/guides/guideRegistry.js";
+import { runInvokeSkillTool } from "../lib/tools/skillsTools.js";
 import { allTools, TOOL_HANDLERS } from "../lib/tools/tools.js";
 
 /** 与 skills 目录中 Guide id 一致；规则已注入系统提示，工具层禁止再 invoke 以免死循环 */
@@ -77,6 +83,7 @@ function buildIntentJsonInstructionBase(): string {
   return `你是客服场景的多意图识别与任务拆解器。
 ${guideBlock}
 工具仅用于辅助发现业务域 guide/skill：可用 \`list_skills_by_domain_segment\` 列候选，再用 \`invoke_skill\` 查看**非 \`${INTENT_COMMON_GUIDE_ID}\`** 的详情。**禁止**对 skillId=\`${INTENT_COMMON_GUIDE_ID}\` 调用 \`invoke_skill\`（规则已在上方全文给出）。
+**性能**：工具轮次尽量少——建议「list 1 次 + invoke 0～2 次」即输出最终 JSON；不要为扫目录反复 list，也不要对每个候选都 invoke。
 只做意图识别与任务拆解；输出**一条**符合 IntentResultSchema 的 JSON 后结束（最终一轮应无 tool_calls）。不要执行真实 SQL、不要在本阶段跑业务查询。
 ${systemContext}
 
@@ -205,7 +212,18 @@ async function runIntentWithSkillTools(
     .bindTools;
   if (!bindTools) {
     log("[Intent]", "LLM tool 绑定", "跳过：当前模型无 bindTools，将直接 invoke（无工具阶段）");
-    return llm.invoke([new SystemMessage(systemInstruction), new HumanMessage(userPrompt)]);
+    log(
+      "[Intent]",
+      "prompt 规模（意图阶段·无工具）",
+      `systemChars=${systemInstruction.length} userChars=${userPrompt.length}`
+    );
+    const t0 = Date.now();
+    const out = await llm.invoke([
+      new SystemMessage(systemInstruction),
+      new HumanMessage(userPrompt)
+    ]);
+    log("[Intent]", "LLM 单轮 invoke", `耗时=${Date.now() - t0}ms`);
+    return out;
   }
   const modelWithTools = bindTools.call(llm, [
     allTools.list_skills_by_domain_segment,
@@ -216,11 +234,24 @@ async function runIntentWithSkillTools(
     new SystemMessage(systemInstruction),
     new HumanMessage(userPrompt)
   ];
-  for (let i = 0; i < 20; i++) {
+  const maxToolRounds = getIntentToolMaxRounds();
+  const bodyMax = getIntentInvokeBodyMaxChars();
+  log(
+    "[Intent]",
+    "prompt 规模（意图阶段）",
+    `systemChars=${systemInstruction.length} userChars=${userPrompt.length} toolMaxRounds=${maxToolRounds} invokeBodyMaxChars=${bodyMax ?? "full"}`
+  );
+  for (let i = 0; i < maxToolRounds; i++) {
+    const tRound = Date.now();
     const aiMsg = (await modelWithTools.invoke(messages)) as {
       content: unknown;
       tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
     };
+    log(
+      "[Intent]",
+      `LLM 第 ${i + 1} 轮`,
+      `耗时=${Date.now() - tRound}ms msgCount=${messages.length}`
+    );
     const calls = aiMsg.tool_calls ?? [];
     if (calls.length > 0) {
       log(
@@ -245,12 +276,9 @@ async function runIntentWithSkillTools(
               ok: true,
               hint: `「${INTENT_COMMON_GUIDE_ID}」规则已在系统提示中完整给出，请勿重复 invoke。请改用工具查询业务域技能，并在最后一轮直接输出 JSON（无 tool_calls）。`
             });
-          } else if (TOOL_HANDLERS[name]) {
-            toolResult = await TOOL_HANDLERS[name](args);
           } else {
-            toolResult = JSON.stringify({
-              ok: false,
-              error: `unknown tool: ${name}`
+            toolResult = await runInvokeSkillTool(skillId, {
+              maxGuideBodyChars: bodyMax
             });
           }
         } else if (TOOL_HANDLERS[name]) {
@@ -275,7 +303,7 @@ async function runIntentWithSkillTools(
       );
     }
   }
-  throw new Error("intent_tool_call_exceeded");
+  throw new Error(`intent_tool_call_exceeded（已超过 INTENT_TOOL_MAX_ROUNDS=${maxToolRounds}）`);
 }
 
 /**
@@ -319,11 +347,24 @@ export async function runIntentClassifyAgent(
     log("[Intent]", "LLM invoke 结束（原始响应已收到）", undefined, tLlm);
     const rawMsg = raw as { content?: unknown; tool_calls?: unknown };
     lastRawMsg = rawMsg;
-    log(
-      "[Intent]",
-      "LLM 原始返回（content + tool_calls）",
+    if (shouldLogIntentRawLlm()) {
+      log(
+        "[Intent]",
+        "LLM 原始返回（content + tool_calls）",
         JSON.stringify(rawMsg, null, 2)
-    );
+      );
+    } else {
+      const c = rawMsg.content;
+      const contentHint =
+        typeof c === "string"
+          ? `content.len=${c.length} preview=${c.slice(0, 200)}`
+          : `content.type=${typeof c}`;
+      log(
+        "[Intent]",
+        "LLM 原始返回（摘要，完整请设 INTENT_LOG_RAW_LLM=1）",
+        `${contentHint} tool_calls=${JSON.stringify(rawMsg.tool_calls ?? []).slice(0, 500)}`
+      );
+    }
     const normalized = normalizeIntentPayloadForSchema(
       parseIntentPayloadFromModelContent(rawMsg.content)
     );

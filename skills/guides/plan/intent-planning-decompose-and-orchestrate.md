@@ -25,10 +25,6 @@ tags:
 
 ### 2) 字段级约束（无 capability 口径）
 
-- 禁止使用 `disclosedCapabilityIds`、`selectedCapability`、`selectedSkill`（对象）等旧字段语义。
-- step 入口统一用扁平字段：
-  - `selectedSkillKind`：`skill | guide`
-  - `selectedSkillId`：skill 入口 id（与 `skills/guides` frontmatter `id` 一致）
 - `executionSkillId` 表示最终执行技能（如 `sql_query`）。
 - `expectedOutput` 建议写成 `resultType=<type>;resultPath=result.rows`。
 
@@ -70,54 +66,3 @@ tags:
 5. 汇总全局：  
    - 存在“必须用户补充”的关键缺参 -> `planPhase="blocked"` + `needsClarification=true`；  
    - 否则可 `planPhase="ready"`，先跑可执行链路。  
-
-### 7) 返回 JSON 示例（最小可用）
-
-```json
-{
-  "intents": [
-    {
-      "intent": "data_query",
-      "goal": "查询会员积分账户与最近流水",
-      "confidence": 0.87,
-      "executable": true,
-      "needsClarification": false,
-      "resolvedSlots": { "vipIds": ["10001"] },
-      "domainId": "data_query",
-      "segmentId": "member",
-      "missingSlots": []
-    }
-  ],
-  "planPhase": "ready",
-  "replyLocale": "zh",
-  "planningTasks": [
-    {
-      "taskId": "task-1",
-      "systemModuleId": "data_query",
-      "goal": "完成会员积分查询",
-      "resolvedSlots": { "vipIds": ["10001"] },
-      "missingSlots": [],
-      "executable": true,
-      "skillSteps": [
-        {
-          "stepId": "step-1",
-          "skillsDomainId": "data_query",
-          "skillsSegmentId": "member",
-          "selectedSkillId": "member.points_account.ledger_recent",
-          "selectedSkillKind": "guide",
-          "requiredParams": ["vipIds"],
-          "providedParams": { "vipIds": ["10001"] },
-          "missingParams": [],
-          "executable": true,
-          "executionSkillId": "sql_query",
-          "dbClientKey": "member",
-          "expectedOutput": "resultType=table;resultPath=result.rows"
-        }
-      ],
-      "expectedOutput": "resultType=table;resultPath=result.rows"
-    }
-  ],
-  "needsClarification": false,
-  "confidence": 0.87
-}
-```

@@ -19,6 +19,7 @@ export { defaultGuidesDir, discoverAndRegisterGuides } from "./scanGuides.js";
 export { validateGuideSlots } from "./slotValidation.js";
 export {
   bindFirstInClause,
+  bindSqlTemplate,
   extractCapabilitySqlTemplate,
   extractFirstSqlTemplate
 } from "./sqlTemplateBind.js";

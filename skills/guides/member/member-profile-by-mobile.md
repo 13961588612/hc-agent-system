@@ -2,7 +2,7 @@
 id: member.profile.by_mobile
 kind: guide
 title: 会员档案查询（按手机号）
-description: 已知手机号（mobiles）时，查询会员档案快照。
+description: 已知手机号（mobile）时，查询会员档案快照。
 domain: data_query
 segment: member
 relatedSkillIds:
@@ -13,9 +13,9 @@ tags:
   - mobile
 params:
   required:
-    - name: mobiles
-      type: string[]
-      description: 手机号列表，非空，最多 10 个
+    - name: mobile
+      type: string
+      description: 手机号，单个非空字符串
 execution:
   skillId: sql-query
   sqlTemplateRef: inline
@@ -23,10 +23,9 @@ execution:
   minConfidence: 0.72
 inputBrief:
   required:
-    - name: mobiles
-      caption: 手机号列表
-      type: string[]
-      maxItems: 10
+    - name: mobile
+      caption: 手机号
+      type: string
 outputBrief:
   resultType: table
   resultPath: result.rows
@@ -67,14 +66,14 @@ outputBrief:
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `mobiles` | `string[]` | 是 | 手机号列表，非空，最多 10 个 |
+| `mobile` | `string` | 是 | 手机号，单个 |
 
 ## 传输字段（给 `data-query`）
 
 | 字段路径 | 说明 |
 |------|------|
 | `sqlQuery.sql` | 使用下方 SQL 模板并完成参数占位替换 |
-| `sqlQuery.params` | 与 `mobiles` 等长的绑定参数数组 |
+| `sqlQuery.params` | 单个绑定值，顺序与 SQL 中占位符一致（如 `[mobile]`） |
 | `sqlQuery.dbClientKey` | 固定 `member` |
 | `sqlQuery.label` | 固定 `member.profile.by_mobile` |
 | `sqlQuery.purpose` | 固定 `member.profile.by_mobile` |
@@ -94,7 +93,7 @@ JOIN bfcrm8.hykdef c ON a.hyktype = c.hyktype
 JOIN bfcrm8.mddy d ON a.mdid = d.mdid
 WHERE a.status <> -1
   AND c.bj_bhxs = 1
-  AND b.sjhm IN (/* N 个绑定占位符，N <= 10 */)
+  AND b.sjhm = :1
 ```
 
 ## 字段字典

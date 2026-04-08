@@ -5,7 +5,7 @@ import {
 } from "../../lib/guides/guideRegistry.js";
 import { validateGuideSlots } from "../../lib/guides/slotValidation.js";
 import {
-  bindFirstInClause,
+  bindSqlTemplate,
   extractFirstSqlTemplate
 } from "../../lib/guides/sqlTemplateBind.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
@@ -29,9 +29,9 @@ function normalizeStringList(v: unknown, max: number): string[] {
 }
 
 const SLOT_ALIAS: Record<string, string[]> = {
-  vipIds: ["vipIds", "user_id", "userId", "hyid"],
-  memberCardNos: ["memberCardNos", "member_card", "memberCardNo", "hyk_no"],
-  mobiles: ["mobiles", "phone", "mobile", "sjhm"],
+  vipId: ["vipId", "vipIds", "user_id", "userId", "hyid"],
+  memberCardNo: ["memberCardNo", "memberCardNos", "member_card", "hyk_no"],
+  mobile: ["mobile", "mobiles", "phone", "sjhm"],
   phone: ["phone", "mobile", "sjhm"],
   member_id: ["member_id", "user_id", "userId", "hyid"]
 };
@@ -60,14 +60,21 @@ function fillParamsForGuide(
   slots: Record<string, unknown>
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const names = [
-    ...(paramsBlock?.required?.map((p) => p.name) ?? []),
-    ...(paramsBlock?.optional?.map((p) => p.name) ?? [])
+  const defs = [
+    ...(paramsBlock?.required ?? []),
+    ...(paramsBlock?.optional ?? [])
   ];
-  for (const name of names) {
+  for (const def of defs) {
+    const name = def.name;
     const raw = slotValue(slots, name);
     if (raw === undefined) continue;
-    out[name] = normalizeStringList(raw, 10);
+    const typeStr = (def.type ?? "string").toLowerCase();
+    if (typeStr.includes("[]")) {
+      out[name] = normalizeStringList(raw, 10);
+    } else {
+      const list = normalizeStringList(raw, 10);
+      if (list.length > 0) out[name] = list[0];
+    }
   }
   return out;
 }
@@ -271,7 +278,7 @@ export function guideAgentNode(
     );
 
   try {
-    const { sql, params } = bindFirstInClause(rawSql, bindValues);
+    const { sql, params } = bindSqlTemplate(rawSql, bindValues);
     const minC = guide.execution?.minConfidence;
     if (
       typeof minC === "number" &&

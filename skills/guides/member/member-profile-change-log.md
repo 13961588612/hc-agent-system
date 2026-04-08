@@ -2,7 +2,7 @@
 id: member.profile.change_log
 kind: guide
 title: 会员生日变更记录查询
-description: 已知会员内部编号（vipIds）时，查询会员生日变更历史。
+description: 已知会员内部编号（vipId）时，查询会员生日变更历史。
 domain: data_query
 segment: member
 relatedSkillIds:
@@ -14,9 +14,9 @@ tags:
   - change-log
 params:
   required:
-    - name: vipIds
-      type: string[]
-      description: 会员内部编号列表，非空，最多 10 个
+    - name: vipId
+      type: string
+      description: 会员内部编号，单个非空字符串
 execution:
   skillId: sql-query
   sqlTemplateRef: inline
@@ -24,10 +24,9 @@ execution:
   minConfidence: 0.72
 inputBrief:
   required:
-    - name: vipIds
-      caption: 会员内部编号列表
-      type: string[]
-      maxItems: 10
+    - name: vipId
+      caption: 会员内部编号
+      type: string
 outputBrief:
   resultType: table
   resultPath: result.rows
@@ -52,14 +51,14 @@ outputBrief:
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `vipIds` | `string[]` | 是 | 会员内部编号列表，非空，最多 10 个 |
+| `vipId` | `string` | 是 | 会员内部编号，单个 |
 
 ## 传输字段（给 `data-query`）
 
 | 字段路径 | 说明 |
 |------|------|
 | `sqlQuery.sql` | 使用下方 SQL 模板并完成参数占位替换 |
-| `sqlQuery.params` | 与 `vipIds` 等长的绑定参数数组 |
+| `sqlQuery.params` | 单个绑定值，顺序与 SQL 中占位符一致（如 `[vipId]`） |
 | `sqlQuery.dbClientKey` | 固定 `member` |
 | `sqlQuery.label` | 固定 `member.profile.change_log` |
 | `sqlQuery.purpose` | 固定 `member.profile.change_log` |
@@ -70,7 +69,7 @@ SELECT
   r.birthday AS birthday,
   TO_CHAR(r.create_time, 'yyyy-mm-dd') AS change_day
 FROM bfcrm8.hyk_birthday_record r
-WHERE r.hyid IN (/* N 个绑定占位符，N <= 10 */)
+WHERE r.hyid = :1
 ```
 
 ## 字段字典

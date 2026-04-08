@@ -2,7 +2,7 @@
 id: member.profile.by_user_id
 kind: guide
 title: 会员档案查询（按会员编号）
-description: 已知会员内部编号（vipIds）时，查询会员档案快照。
+description: 已知会员内部编号（vipId）时，查询会员档案快照。
 domain: data_query
 segment: member
 relatedSkillIds:
@@ -12,9 +12,9 @@ tags:
   - profile
 params:
   required:
-    - name: vipIds
-      type: string[]
-      description: 会员内部编号列表，非空，最多 10 个
+    - name: vipId
+      type: string
+      description: 会员内部编号，单个非空字符串
 execution:
   skillId: sql-query
   sqlTemplateRef: inline
@@ -22,10 +22,9 @@ execution:
   minConfidence: 0.72
 inputBrief:
   required:
-    - name: vipIds
-      caption: 会员内部编号列表
-      type: string[]
-      maxItems: 10
+    - name: vipId
+      caption: 会员内部编号
+      type: string
 outputBrief:
   resultType: table
   resultPath: result.rows
@@ -66,14 +65,14 @@ outputBrief:
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `vipIds` | `string[]` | 是 | 会员内部编号列表，非空，最多 10 个 |
+| `vipId` | `string` | 是 | 会员内部编号，单个 |
 
 ## 传输字段（给 `data-query`）
 
 | 字段路径 | 说明 |
 |------|------|
 | `sqlQuery.sql` | 使用下方 SQL 模板并完成参数占位替换 |
-| `sqlQuery.params` | 与 `vipIds` 等长的绑定参数数组 |
+| `sqlQuery.params` | 单个绑定值，顺序与 SQL 中占位符一致（如 `[vipId]`） |
 | `sqlQuery.dbClientKey` | 固定 `member` |
 | `sqlQuery.label` | 固定 `member.profile.by_user_id` |
 | `sqlQuery.purpose` | 固定 `member.profile.by_user_id` |
@@ -93,7 +92,7 @@ JOIN bfcrm8.hykdef c ON a.hyktype = c.hyktype
 JOIN bfcrm8.mddy d ON a.mdid = d.mdid
 WHERE a.status <> -1
   AND c.bj_bhxs = 1
-  AND a.hyid IN (/* N 个绑定占位符，N <= 10 */)
+  AND a.hyid = :1
 ```
 
 ## 字段字典

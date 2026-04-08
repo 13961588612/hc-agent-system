@@ -203,6 +203,8 @@ export const OrchestratorStateSchema = new StateSchema({
   highLevelDomain: z.enum(["data_query", "other"]).optional(),
   /** 结构化意图（LLM + 兜底）；校验随 `system.yaml` segments，故用 lazy 在运行时解析 */
   intentResult: z.lazy(() => getIntentResultSchema()).optional(),
+  /** 意图阶段输出的步骤提示（供前端展示“当前执行到哪一步”） */
+  intentProgressSteps: z.array(z.string()).optional(),
   /** 会话轮次（append reducer，最多保留最近若干条） */
   // LangGraph `SerializableSchema` 与 `zod/v3` 的 TS 声明不完全一致，运行时仍按 Zod 校验
   conversationTurns:
@@ -273,6 +275,7 @@ export type OrchestratorState = {
   input: z.infer<typeof OrchestratorInputSchema>;
   highLevelDomain?: "data_query" | "other";
   intentResult?: IntentResult;
+  intentProgressSteps?: string[];
   conversationTurns?: z.infer<typeof ConversationTurnSchema>[];
   resultsIndex?: Record<string, z.infer<typeof ResultsIndexEntrySchema>>;
   lastDataSetRef?: {

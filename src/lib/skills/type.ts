@@ -32,6 +32,25 @@ export interface SkillCapabilityBrief {
   description?: string;
 }
 
+/** 目录/工具列表用的轻量技能摘要（不含 `run`、不含完整 guide 体） */
+export interface SkillBriefInfo {
+  id: string;
+  name: string;
+  description: string;
+  /** 对齐系统配置中的域 id，如 data_query/core/member */
+  domainId?: string;
+  /** 对齐系统配置中的分段 id，如 member/ecommerce/other */
+  segmentId?: string;
+  /** 区分可执行技能 vs Guide/Playbook */
+  kind: skillKind;
+
+  capabilities?: SkillCapabilityBrief[];
+  /** 入参一句话摘要（来自 Guide 的 inputBrief / params，供列表与 tool 快速扫读） */
+  inputSummary?: string;
+  /** 出参一句话摘要（来自 Guide 的 outputBrief） */
+  outputSummary?: string;
+}
+
 /**
  * 可披露元数据（L1）：用于 Registry 检索、get-skills-info、向量索引等。
  * **不含** `run`，避免把实现细节塞进 prompt。
@@ -105,3 +124,6 @@ export type AnySkillDef = SkillDef<unknown, unknown>;
 
 /** 仅元数据、无 `run` 时的擦除形态（如 getDisclosureMeta 列表项） */
 export type AnySkillMeta = SkillMeta<unknown, unknown>;
+
+/** getSkillDetailById 等返回的异构详情：目录项元数据、原始 Guide 或其它未知形状 */
+export type SkillOrGuideDetail = AnySkillMeta | SkillGuideEntry | unknown;

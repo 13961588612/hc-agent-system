@@ -36,3 +36,17 @@ export function bindFirstInClause(
   }
   return { sql: replaced, params: [...values] };
 }
+
+/** 若 SQL 含「IN + 括号内块注释占位」则展开为多占位符；否则假定已写 :1 等与 values 顺序一致，直接绑定 */
+export function bindSqlTemplate(
+  sql: string,
+  values: unknown[]
+): { sql: string; params: unknown[] } {
+  if (values.length === 0) {
+    throw new Error("bindSqlTemplate: values 不能为空");
+  }
+  if (IN_COMMENT_BLOCK.test(sql)) {
+    return bindFirstInClause(sql, values);
+  }
+  return { sql, params: [...values] };
+}
