@@ -49,6 +49,7 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
 
     try {
       const tAll = Date.now();
+      const streamId = generateReqId("stream");
       log("[WeCom-WS]", "runOrchestratorGraph 调用前", `thread_id=${threadId}`);
       const result = await runOrchestratorGraph(
         {
@@ -57,7 +58,17 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
           channel: "wecom",
           env
         },
-        { configurable: { thread_id: threadId } }
+        { configurable: { thread_id: threadId } },
+        {
+          onProgress: async (message) => {
+            await wsClient.replyStream(
+              { headers: frame.headers },
+              streamId,
+              `⏳ ${message}`.slice(0, 20480),
+              false
+            );
+          }
+        }
       );
       log("[WeCom-WS]", "runOrchestratorGraph 返回", undefined, tAll);
       log(
@@ -67,7 +78,6 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
       );
 
       const replyText = formatFinalAnswerForChannel(result);
-      const streamId = generateReqId("stream");
       const tReply = Date.now();
       log(
         "[WeCom-WS]",

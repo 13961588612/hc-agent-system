@@ -9,7 +9,7 @@ import {
 import { refreshIntentResultSchemaCache } from "../contracts/intentSchemas.js";
 import { getRuntimeContext } from "../config/runtimeContext.js";
 import { defaultGuidesDir, discoverAndRegisterGuides } from "../lib/guides/scanGuides.js";
-import { discoverAndRegisterIntentRules } from "../intent/scanIntentRules.js";
+import { discoverAndRegisterIntentRules } from "../intent/rule/scanIntentRules.js";
 import type { DatabasesConfig } from "../config/databasesConfig.js";
 
 export interface InitCoreResult {

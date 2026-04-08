@@ -5,6 +5,7 @@ import type { DataQueryInput, SubTaskEnvelope, SubTaskResult } from "../../contr
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
 import type { DataQueryResult } from "../../contracts/types.js";
+import { emitProgressByConfig } from "./progressReporter.js";
 import {
   getBestDataQueryIntent,
   getPlanningTasksByModule,
@@ -17,6 +18,7 @@ export async function executeDataQueryNode(
   config?: { configurable?: { thread_id?: string } }
 ): Promise<Partial<OrchestratorState>> {
   const t0 = Date.now();
+  await emitProgressByConfig(config, "正在执行：步骤4 数据查询执行");
   const ir = state.intentResult;
   const dq = getBestDataQueryIntent(ir);
   const moduleTasks = getPlanningTasksByModule(ir, "data_query");
@@ -34,6 +36,7 @@ export async function executeDataQueryNode(
       `reason=${!ir ? "no_intentResult" : !isPlanningReady(ir) ? "plan_not_ready" : ir.needsClarification ? "needs_clarification" : dq?.missingSlots?.length ? "missing_slots" : "not_data_query"}`,
       t0
     );
+    await emitProgressByConfig(config, "步骤4完成：当前无需执行数据查询");
     return {};
   }
 
@@ -153,6 +156,7 @@ export async function executeDataQueryNode(
     `taskId=${taskId}`,
     t0
   );
+  await emitProgressByConfig(config, `步骤4完成：查询任务已结束（status=${subResult.status}）`);
 
   return {
     resultsIndex: {

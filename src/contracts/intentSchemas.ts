@@ -104,6 +104,16 @@ export function buildIntentResultSchema(config: SystemConfig) {
           intent: IntentTypeSchema,
           /** 该子意图的自然语言目标，便于日志与 planningTasks 对齐 */
           goal: z.string().optional(),
+          /**
+           * 无语义负载数据的任务简述：说明「做哪类事、查/分析哪类对象与数据」，用于后续复用鉴别与路由对齐。
+           * 勿写入手机号、会员号、订单号等具体值（应放在 `resolvedSlots`）。
+           */
+          semanticTaskBrief: z.string().optional(),
+          /**
+           * 当前 `semanticTaskBrief` 与「同 segment + skill 缓存的上一次简述向量」的余弦相似度，映射到 0～1（(cos+1)/2）。
+           * 无缓存、未配置嵌入 API 或嵌入失败时不填；用于判断是否与历史任务形态相近以复用计划。
+           */
+          semanticTaskBriefVectorSim: z.number().optional(),
           /** 模型对该子意图的置信度 0～1；与根级 `confidence` 独立 */
           confidence: z.number().optional(),
           /**

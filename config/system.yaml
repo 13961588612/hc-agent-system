@@ -14,31 +14,31 @@ version: 1
 domains:
   - id: data_query
     title: 数据查询
-    description: 问数查询模块;Skill 顶层域；用于技能分层与渐进披露
+    description: 问数/数据查询模块;
     facets: [system-module,skills]
   - id: data_analysis
     title: 数据分析
-    description: 数据分析模块;Skill 顶层域；用于技能分层与渐进披露
+    description: 业务分析/数据分析模块;
     facets: [system-module,skills]
   - id: smart_form
     title: 智能表单
-    description: 智能表单模块;Skill 顶层域；用于技能分层与渐进披露
+    description: 智能表单模块;
     facets: [system-module,skills]
   - id: intent
     title: 意图
-    description: Skill 顶层域；用于技能分层与渐进披露
+    description: 意图识别/意图分类模块;
     facets: [skills]
   - id: common
     title: 核心通用能力
-    description: skills顶层域；如 sql-query、invoke-skill 等底层能力
+    description: 核心通用能力域；如 sql-query、invoke-skill 等底层能力
     facets: [skills]
 
 segments:
   - id: member
-    title: 会员线
+    title: 会员线;会员资料/会员积分账户/会员券账户/会员储值卡、礼卡账户/会员订单/停车订单/评价记录
     facets: [business,skills]
   - id: ecommerce
-    title: 电商线
+    title: 电商线;电商订单/商品/销售/物流/售后
     facets: [business,skills]
   - id: finance
     title: 财务线

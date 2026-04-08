@@ -7,12 +7,14 @@ export function log(
     | "[Intent]"
     | "[DataQuery]"
     | "[WeCom-WS]"
-    | "[WeCom-HTTP]",
+    | "[WeCom-HTTP]"
+    | unknown,
   phase: string,
   detail?: string,
   since?: number
 ): void {
   const ms = since !== undefined ? ` +${Date.now() - since}ms` : "";
   const d = detail ? ` | ${detail}` : "";
-  console.log(`${scope} ${phase}${ms}${d}`);
+  const t = new Date().toISOString();
+  console.log(`${scope} ${t} ${phase}${ms}${d}`);
 }

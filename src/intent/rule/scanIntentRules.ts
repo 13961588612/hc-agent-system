@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { getSegmentEntry, getSystemConfig } from "../config/systemConfig.js";
+import { getSegmentEntry, getSystemConfig } from "../../config/systemConfig.js";
 import {
   clearIntentRules,
   getIntentRule,

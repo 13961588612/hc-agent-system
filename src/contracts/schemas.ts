@@ -205,6 +205,14 @@ export const OrchestratorStateSchema = new StateSchema({
   intentResult: z.lazy(() => getIntentResultSchema()).optional(),
   /** 意图阶段输出的步骤提示（供前端展示“当前执行到哪一步”） */
   intentProgressSteps: z.array(z.string()).optional(),
+  /** 程序化规划统计（如可复用计划命中） */
+  intentPlanningStats: z
+    .object({
+      reuseHit: z.number().optional(),
+      reuseMiss: z.number().optional(),
+      generatedTasks: z.number().optional()
+    })
+    .optional(),
   /** 会话轮次（append reducer，最多保留最近若干条） */
   // LangGraph `SerializableSchema` 与 `zod/v3` 的 TS 声明不完全一致，运行时仍按 Zod 校验
   conversationTurns:
@@ -276,6 +284,11 @@ export type OrchestratorState = {
   highLevelDomain?: "data_query" | "other";
   intentResult?: IntentResult;
   intentProgressSteps?: string[];
+  intentPlanningStats?: {
+    reuseHit?: number;
+    reuseMiss?: number;
+    generatedTasks?: number;
+  };
   conversationTurns?: z.infer<typeof ConversationTurnSchema>[];
   resultsIndex?: Record<string, z.infer<typeof ResultsIndexEntrySchema>>;
   lastDataSetRef?: {

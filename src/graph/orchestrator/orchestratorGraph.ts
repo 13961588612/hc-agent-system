@@ -26,6 +26,10 @@ import {
   hasPlanningBlockers,
   isPlanningReady
 } from "./intentSelectors.js";
+import {
+  registerProgressHandler,
+  unregisterProgressHandler
+} from "./progressReporter.js";
 
 const builder = new StateGraph(OrchestratorStateSchema);
 
@@ -119,7 +123,10 @@ export { orchestratorApp };
 
 export async function runOrchestratorGraph(
   input: OrchestratorInput,
-  config?: { configurable?: { thread_id?: string } }
+  config?: { configurable?: { thread_id?: string } },
+  options?: {
+    onProgress?: (message: string) => Promise<void> | void;
+  }
 ) {
   const runConfig =
     config ?? { configurable: { thread_id: `thread-${nanoid()}` } };
@@ -160,20 +167,27 @@ export async function runOrchestratorGraph(
     }
   }
 
-  const result = (await orchestratorApp.invoke(
-    patch as never,
-    runConfig
-  )) as { finalAnswer?: unknown };
-  const fa = result.finalAnswer;
-  const faHint =
-    fa && typeof fa === "object" && fa !== null && "type" in fa
-      ? String((fa as { type: unknown }).type)
-      : typeof fa;
-  log(
-    "[Orchestrator]",
-    "graph invoke 结束",
-    `finalAnswer.type=${faHint}`,
-    t0
-  );
-  return result.finalAnswer;
+  try {
+    if (options?.onProgress) {
+      registerProgressHandler(threadId, options.onProgress);
+    }
+    const result = (await orchestratorApp.invoke(
+      patch as never,
+      runConfig
+    )) as { finalAnswer?: unknown };
+    const fa = result.finalAnswer;
+    const faHint =
+      fa && typeof fa === "object" && fa !== null && "type" in fa
+        ? String((fa as { type: unknown }).type)
+        : typeof fa;
+    log(
+      "[Orchestrator]",
+      "graph invoke 结束",
+      `finalAnswer.type=${faHint}`,
+      t0
+    );
+    return result.finalAnswer;
+  } finally {
+    unregisterProgressHandler(threadId);
+  }
 }

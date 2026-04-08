@@ -10,6 +10,7 @@ import {
 } from "../../lib/guides/sqlTemplateBind.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
+import { emitProgressByConfig } from "./progressReporter.js";
 import {
   getBestDataQueryIntent,
   getPrimaryPlanningTask,
@@ -162,10 +163,12 @@ function shouldRunSql(guide: SkillGuideEntry): boolean {
   return !sid || sid === "sql-query";
 }
 
-export function guideAgentNode(
-  state: OrchestratorState
-): Partial<OrchestratorState> {
+export async function guideAgentNode(
+  state: OrchestratorState,
+  config?: { configurable?: { thread_id?: string } }
+): Promise<Partial<OrchestratorState>> {
   const t0 = Date.now();
+  await emitProgressByConfig(config, "正在执行：步骤3 匹配Guide并绑定查询参数");
   const ir = state.intentResult;
   const dq = getBestDataQueryIntent(ir);
   if (
@@ -181,6 +184,7 @@ export function guideAgentNode(
       !isPlanningReady(ir) ? "规划未就绪" : "非 data_query 或意图层已澄清/缺槽",
       t0
     );
+    await emitProgressByConfig(config, "步骤3完成：暂无匹配 Guide");
     return {
       guidePhase: "skipped",
       guideMissingParams: [],
@@ -198,6 +202,7 @@ export function guideAgentNode(
       `targetEntryId=${dq?.targetEntryId ?? ""}`,
       t0
     );
+    await emitProgressByConfig(config, "步骤3完成：缺少执行参数，等待补充");
     return {
       guidePhase: "skipped",
       guideMissingParams: [],
@@ -227,6 +232,7 @@ export function guideAgentNode(
       `missing=${validation.missing.join(",")}`,
       t0
     );
+    await emitProgressByConfig(config, "步骤3完成：该 Guide 非 sql-query 执行");
     return {
       guidePhase: "awaiting_slot",
       selectedSkillId: guide.id,
@@ -243,6 +249,7 @@ export function guideAgentNode(
       guide.execution?.skillId ?? "",
       t0
     );
+    await emitProgressByConfig(config, "步骤3完成：未找到可执行 SQL 模板");
     return {
       guidePhase: "skipped",
       guideMissingParams: [],
@@ -292,6 +299,7 @@ export function guideAgentNode(
         `confidence=${ir.confidence} min=${minC}`,
         t0
       );
+      await emitProgressByConfig(config, "步骤3完成：置信度不足，跳过执行");
       return {
         guidePhase: "skipped",
         guideMissingParams: [],
@@ -308,6 +316,7 @@ export function guideAgentNode(
       t0
     );
 
+    await emitProgressByConfig(config, "步骤3完成：Guide 参数绑定完成");
     return {
       guidePhase: "ready",
       guideMissingParams: [],
@@ -333,6 +342,7 @@ export function guideAgentNode(
       msg.slice(0, 200),
       t0
     );
+    await emitProgressByConfig(config, "步骤3完成：模板绑定失败");
     return {
       guidePhase: "skipped",
       guideMissingParams: [],

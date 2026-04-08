@@ -1,6 +1,7 @@
 import { getMaxClarificationRounds } from "../../config/intentPolicy.js";
 import type { OrchestratorState } from "../../contracts/schemas.js";
 import { log } from "../../lib/log/log.js";
+import { emitProgressByConfig } from "./progressReporter.js";
 import {
   getBestDataQueryIntent,
   getBestIntentByType,
@@ -122,10 +123,30 @@ function logComposeDone(
   return partial;
 }
 
-export function composeAnswerNode(
-  state: OrchestratorState
-): Partial<OrchestratorState> {
+function withPlanningMeta(state: OrchestratorState, finalAnswer: unknown): unknown {
+  if (!finalAnswer || typeof finalAnswer !== "object") return finalAnswer;
+  const stats = state.intentPlanningStats;
+  if (!stats) return finalAnswer;
+  const fa = finalAnswer as Record<string, unknown>;
+  const prevMeta =
+    fa.meta && typeof fa.meta === "object"
+      ? (fa.meta as Record<string, unknown>)
+      : {};
+  return {
+    ...fa,
+    meta: {
+      ...prevMeta,
+      intentPlanningStats: stats
+    }
+  };
+}
+
+export async function composeAnswerNode(
+  state: OrchestratorState,
+  config?: { configurable?: { thread_id?: string } }
+): Promise<Partial<OrchestratorState>> {
   const t0 = Date.now();
+  await emitProgressByConfig(config, "正在执行：步骤5 生成最终回复");
   const riKeys = state.resultsIndex ? Object.keys(state.resultsIndex).length : 0;
   log(
     "[Orchestrator]",
@@ -147,19 +168,25 @@ export function composeAnswerNode(
       t0
     );
     const message = "追问次数已达上限，请换一种说法或重新描述问题。";
-    const finalAnswer = { type: "fallback" as const, message };
-    return logComposeDone(t0, {
+    const finalAnswer = withPlanningMeta(state, { type: "fallback" as const, message });
+    const out = logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
       conversationTurns: [
         { role: "assistant" as const, content: message.slice(0, 2000) }
       ]
     });
+    await emitProgressByConfig(config, "步骤5完成：已生成回复");
+    return out;
   }
 
   if (ir?.planPhase === "blocked") {
     const message = blockedPlanningMessage(ir) || "请先补充必要信息后继续。";
-    const finalAnswer = { type: "plan_blocked" as const, message, planningTasks: ir.planningTasks ?? [] };
+    const finalAnswer = withPlanningMeta(state, {
+      type: "plan_blocked" as const,
+      message,
+      planningTasks: ir.planningTasks ?? []
+    });
     return logComposeDone(t0, {
       finalAnswer,
       clarificationRound: round + 1,
@@ -172,7 +199,7 @@ export function composeAnswerNode(
 
   if (ir?.needsClarification && ir.clarificationQuestion?.trim()) {
     const message = ir.clarificationQuestion.trim();
-    const finalAnswer = { type: "clarification" as const, message };
+    const finalAnswer = withPlanningMeta(state, { type: "clarification" as const, message });
     return logComposeDone(t0, {
       finalAnswer,
       clarificationRound: round + 1,
@@ -188,7 +215,7 @@ export function composeAnswerNode(
     const message =
       ir?.clarificationQuestion?.trim() ||
       `请补充以下信息以便查询：${dq.missingSlots.join("、")}`;
-    const finalAnswer = { type: "clarification" as const, message };
+    const finalAnswer = withPlanningMeta(state, { type: "clarification" as const, message });
     return logComposeDone(t0, {
       finalAnswer,
       clarificationRound: round + 1,
@@ -208,7 +235,7 @@ export function composeAnswerNode(
       ir.clarificationQuestion?.trim() ||
       planClarificationMessageFromPlanningTasks(ir) ||
       "请补充必要信息后继续。";
-    const finalAnswer = { type: "clarification" as const, message };
+    const finalAnswer = withPlanningMeta(state, { type: "clarification" as const, message });
     return logComposeDone(t0, {
       finalAnswer,
       clarificationRound: round + 1,
@@ -225,7 +252,7 @@ export function composeAnswerNode(
     !!dq
   ) {
     const message = `请补充以下信息以便查询：${state.guideMissingParams.join("、")}`;
-    const finalAnswer = { type: "clarification" as const, message };
+    const finalAnswer = withPlanningMeta(state, { type: "clarification" as const, message });
     return logComposeDone(t0, {
       finalAnswer,
       clarificationRound: round + 1,
@@ -238,18 +265,18 @@ export function composeAnswerNode(
 
   if (state.resultsIndex && Object.keys(state.resultsIndex).length > 0) {
     const finalAnswer = dq
-      ? {
+      ? withPlanningMeta(state, {
           type: "data_query" as const,
           resultsIndex: state.resultsIndex
-        }
-      : {
+        })
+      : withPlanningMeta(state, {
           type: "task_plan" as const,
           message: Object.values(state.resultsIndex)
             .map((x) => x.summary)
             .slice(0, 3)
             .join("\n"),
           resultsIndex: state.resultsIndex
-        };
+        });
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -263,7 +290,7 @@ export function composeAnswerNode(
     const message =
       ir?.replySuggestion?.trim() ||
       "您好！如需查询订单或会员积分等数据，请告诉我具体需求。";
-    const finalAnswer = { type: "chitchat" as const, message };
+    const finalAnswer = withPlanningMeta(state, { type: "chitchat" as const, message });
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -277,7 +304,7 @@ export function composeAnswerNode(
     const message =
       ir?.replySuggestion?.trim() ||
       "当前仅支持简单的数据查询示例，请尝试询问订单或会员积分相关问题。";
-    const finalAnswer = { type: "fallback" as const, message };
+    const finalAnswer = withPlanningMeta(state, { type: "fallback" as const, message });
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -293,11 +320,11 @@ export function composeAnswerNode(
       ia?.goal?.trim()
         ? `已识别为数据分析需求：${ia.goal.trim()}。当前版本将先完成查询准备，随后进入分析步骤。`
         : "已识别为数据分析需求。请补充分析口径（指标、时间范围、分组维度）以继续。";
-    const finalAnswer = {
+    const finalAnswer = withPlanningMeta(state, {
       type: "task_plan" as const,
       message,
       planningTasks: ir?.planningTasks ?? []
-    };
+    });
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -313,11 +340,11 @@ export function composeAnswerNode(
       ik?.goal?.trim()
         ? `已识别为知识问答需求：${ik.goal.trim()}。我会基于已披露能力整理答案。`
         : "已识别为知识问答需求，请补充你希望查询的主题范围或对象。";
-    const finalAnswer = {
+    const finalAnswer = withPlanningMeta(state, {
       type: "task_plan" as const,
       message,
       planningTasks: ir?.planningTasks ?? []
-    };
+    });
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -330,15 +357,15 @@ export function composeAnswerNode(
   if (dq) {
     const preview = planExecutionPreviewMessage(ir);
     const finalAnswer = preview
-      ? {
+      ? withPlanningMeta(state, {
           type: "task_plan" as const,
           message: preview,
           planningTasks: ir?.planningTasks ?? []
-        }
-      : {
+        })
+      : withPlanningMeta(state, {
           type: "fallback" as const,
           message: "数据查询未能完成或未返回结果，请换一种说法或稍后再试。"
-        };
+        });
     return logComposeDone(t0, {
       ...clearedClarification,
       finalAnswer,
@@ -350,7 +377,7 @@ export function composeAnswerNode(
 
   const message =
     "当前仅支持简单的数据查询示例，请尝试询问订单或会员积分相关问题。";
-  const finalAnswer = { type: "fallback" as const, message };
+  const finalAnswer = withPlanningMeta(state, { type: "fallback" as const, message });
   return logComposeDone(t0, {
     ...clearedClarification,
     finalAnswer,
