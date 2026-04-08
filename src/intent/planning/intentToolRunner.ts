@@ -83,9 +83,7 @@ export async function runIntentWithSkillTools(
               hint: `「${INTENT_COMMON_GUIDE_ID}」规则已在系统提示中完整给出，请勿重复 invoke。请改用工具查询业务域技能，并在最后一轮直接输出 JSON（无 tool_calls）。`
             });
           } else {
-            toolResult = await runInvokeSkillTool(skillId, {
-              maxGuideBodyChars: bodyMax
-            });
+            toolResult = await runInvokeSkillTool(skillId);
           }
         } else if (TOOL_HANDLERS[name]) {
           toolResult = await TOOL_HANDLERS[name](args);

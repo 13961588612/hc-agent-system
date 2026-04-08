@@ -3,8 +3,8 @@ export type { DeterministicPlanningStats } from "./dataQueryDeterministicPlanner
 export {
   Stage1IntentPayloadSchema,
   type Stage1IntentPayload
-} from "./stage1IntentSchema.js";
-export { buildSeedIntentResultFromStage1 } from "./stage1Seed.js";
+} from "./intentSeparateSchema.js";
+export { buildSeedIntentResultFromStage1 } from "./intentSeparateSeed.js";
 export {
   getReusableStepTemplate,
   saveReusableStepTemplate

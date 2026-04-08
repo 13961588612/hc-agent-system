@@ -5,15 +5,13 @@ import {
 } from "../../config/intentPolicy.js";
 import { log } from "../../lib/log/log.js";
 import {
-  Stage1IntentPayloadSchema,
-  type Stage1IntentPayload
-} from "../intent-planning/stage1IntentSchema.js";
+  IntentSeparatePayloadSchema,
+  type IntentSeparatePayload
+} from "./intentSeparateSchema.js";
 import {
-  buildIntentClassifyInstruction,
-  normalizeIntentPayloadForSchema,
-  parseIntentPayloadFromModelContent
-} from "../intent-planning/intentPromptUtils.js";
-import { runIntentWithSkillTools } from "../intent-planning/intentToolRunner.js";
+  buildIntentSeparateInstruction
+} from "./intentPromptUtils.js";
+import { runIntentWithSkillTools } from "./intentToolRunner.js";
 import { allTools } from "../../lib/tools/tools.js";
 
 /** LLM 返回（仅关心 content / tool_calls） */
@@ -36,10 +34,10 @@ export function buildIntentLlmUserContent(state: OrchestratorState): string {
 }
 
 /** 阶段2：调用意图 LLM（含工具轮与超时），拆分意图 */
-export async function runIntentClassificationLlm(
+export async function runIntentSeparateLlm(
   userContent: string
 ): Promise<IntentLlmRawMessage> {
-  const instruction = buildIntentClassifyInstruction();
+  const instruction = buildIntentSeparateInstruction();
   const tLlm = Date.now();
   const timeoutMs = getIntentLlmTimeoutMs();
   log("[Intent]", "getModel + LLM invoke 开始", `timeoutMs=${timeoutMs}`);
@@ -77,11 +75,73 @@ export function logIntentLlmModelOutput(rawMsg: IntentLlmRawMessage): void {
 }
 
 /** 阶段3：解析为 Stage1 载荷 */
-export function parseIntentStage1Payload(
+export function parseIntentSeparatePayload(
   rawMsg: IntentLlmRawMessage
-): Stage1IntentPayload {
+): IntentSeparatePayload {
   const normalized = normalizeIntentPayloadForSchema(
     parseIntentPayloadFromModelContent(rawMsg.content)
   );
-  return Stage1IntentPayloadSchema.parse(normalized);
+  return IntentSeparatePayloadSchema.parse(normalized);
+}
+
+
+export function parseIntentPayloadFromModelContent(content: unknown): unknown {
+  if (typeof content === "string") {
+    const s = content.trim();
+    if (!s) return content;
+    try {
+      return JSON.parse(s);
+    } catch {
+      const first = s.indexOf("{");
+      const last = s.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try {
+          return JSON.parse(s.slice(first, last + 1));
+        } catch {
+          return content;
+        }
+      }
+      return content;
+    }
+  }
+  return content;
+}
+
+export function normalizeIntentPayloadForSchema(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object") return payload;
+  const obj = payload as Record<string, unknown>;
+
+  const normalizeSuggestion = (v: unknown): string | undefined => {
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) {
+      const parts = v
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter((x) => x.length > 0);
+      if (parts.length > 0) return parts.join(" / ");
+    }
+    return undefined;
+  };
+
+  const rootSuggestion = normalizeSuggestion(obj.replySuggestion);
+  if (rootSuggestion) obj.replySuggestion = rootSuggestion;
+
+  if (Array.isArray(obj.intents)) {
+    obj.intents = obj.intents.map((x) => {
+      if (!x || typeof x !== "object") return x;
+      const item = { ...(x as Record<string, unknown>) };
+      const sug = normalizeSuggestion(item.replySuggestion);
+      if (sug) item.replySuggestion = sug;
+      return item;
+    });
+  }
+  return obj;
+}
+
+
+export async function applyIntentSeparate(state: OrchestratorState): Promise<IntentSeparatePayload> {
+  const userContent = buildIntentLlmUserContent(state);
+  const rawMsg = await runIntentSeparateLlm(userContent);
+  logIntentLlmModelOutput(rawMsg);
+  const intentSeparatePayload = parseIntentSeparatePayload(rawMsg);
+  return intentSeparatePayload;
 }

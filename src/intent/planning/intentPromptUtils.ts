@@ -13,7 +13,7 @@ import {
 export const INTENT_COMMON_GUIDE_ID = "intent-planning-decompose-and-orchestrate";
 
 /** 第一阶段意图识别：规则内联在代码中，与 Stage1IntentPayloadSchema 一致 */
-function buildIntentClassifyRulesInline(): string {
+function buildIntentSeparateRulesInline(): string {
   return `【第一阶段：轻量意图识别（仅下列 JSON 字段）】
 - 根据系统 domain segment配置，拆分任务。
 - 输出唯一一个 JSON 对象，不要附加说明文字。
@@ -29,6 +29,15 @@ function buildIntentClassifyRulesInline(): string {
 }
 
 /** 从 system.yaml 注入到意图识别提示词中的系统摘要（只读配置，不写死业务） */
+let systemContext: string | undefined;
+
+function getSystemContextForIntentPrompt(): string {
+  if (!systemContext) 
+    systemContext = formatSystemContextForIntentPrompt();
+  return systemContext;
+}
+
+
 function formatSystemContextForIntentPrompt(): string {
   const cfg = getSystemConfig();
   const ver =
@@ -74,24 +83,37 @@ ${moduleBlock}
 ${businessBlock}`;
 }
 
-export function buildIntentClassifyInstruction(): string {
-  const systemContext = formatSystemContextForIntentPrompt();
-  const stage1Rules = buildIntentClassifyRulesInline();
+export function buildIntentSeparateInstruction(): string {
+  const systemContext = getSystemContextForIntentPrompt();
+  const intentSeparateRules = buildIntentSeparateRulesInline();
 
   return `你是客服场景的多意图识别与任务拆解器。
-${stage1Rules}
+${intentSeparateRules}
 不要执行真实 SQL、不要在本阶段跑业务查询。
 ${systemContext}
 
 `;
 }
 
-export function buildIntentJsonTaskStepsInstructionBase(): string {
+export function buildIntentTaskStepsRulesInline(): string {
+  return `【第二阶段：task/step 规划回写（仅输出 JSON）】
+- 你将收到已有 intents 的 IntentResult 与用户输入；resolvedSlots 可能缺失或为空。
+- 只重写与 data_query 相关的 planningTasks/skillSteps 与澄清字段，保留其它意图不变。
+- 输出必须是单个 JSON 对象，不要 markdown，不要解释。
+- 对每个 data_query intent 生成 task 与至少一个 step。
+- step 必须包含：selectedSkillId、selectedSkillKind、requiredParams、providedParams、missingParams、executable。
+- 当 resolvedSlots 缺失时，按用户输入与上下文尽量补齐 providedParams，并将无法确定的字段写入 missingParams。
+- 若存在缺参：planPhase=blocked；否则 planPhase=ready。
+- expectedOutput 使用约定：resultType=...;resultPath=...
+- 不要执行真实 SQL、不要访问外部数据。`;
+}
+
+export function buildIntentTaskStepsInstruction(): string {
   const systemContext = formatSystemContextForIntentPrompt();
-  const stage1Rules = buildIntentClassifyRulesInline();
+  const intentTaskStepsRules = buildIntentTaskStepsRulesInline();
 
   return `你是客服场景的多意图识别与任务拆解器。
-${stage1Rules}
+${intentTaskStepsRules}
 工具仅用于辅助发现业务域 skill/guide：可用 \`list_skills_by_domain_segment\` 列候选，再用 \`invoke_skill\` 查看**非** skillId=\`${INTENT_COMMON_GUIDE_ID}\` 的详情。**禁止**对 \`${INTENT_COMMON_GUIDE_ID}\` 调用 \`invoke_skill\`（意图规则已全部在本系统提示中给出，重复拉取无意义）。
 **性能**：工具轮次尽量少——建议「list 1 次 + invoke 0～2 次」即输出最终 JSON；不要反复 list，也不要对每个候选都 invoke。
 最终一轮应无 tool_calls。不要执行真实 SQL、不要在本阶段跑业务查询。
@@ -99,56 +121,3 @@ ${systemContext}
 
 `;
 }
-
-export function parseIntentPayloadFromModelContent(content: unknown): unknown {
-  if (typeof content === "string") {
-    const s = content.trim();
-    if (!s) return content;
-    try {
-      return JSON.parse(s);
-    } catch {
-      const first = s.indexOf("{");
-      const last = s.lastIndexOf("}");
-      if (first >= 0 && last > first) {
-        try {
-          return JSON.parse(s.slice(first, last + 1));
-        } catch {
-          return content;
-        }
-      }
-      return content;
-    }
-  }
-  return content;
-}
-
-export function normalizeIntentPayloadForSchema(payload: unknown): unknown {
-  if (!payload || typeof payload !== "object") return payload;
-  const obj = payload as Record<string, unknown>;
-
-  const normalizeSuggestion = (v: unknown): string | undefined => {
-    if (typeof v === "string") return v;
-    if (Array.isArray(v)) {
-      const parts = v
-        .map((x) => (typeof x === "string" ? x.trim() : ""))
-        .filter((x) => x.length > 0);
-      if (parts.length > 0) return parts.join(" / ");
-    }
-    return undefined;
-  };
-
-  const rootSuggestion = normalizeSuggestion(obj.replySuggestion);
-  if (rootSuggestion) obj.replySuggestion = rootSuggestion;
-
-  if (Array.isArray(obj.intents)) {
-    obj.intents = obj.intents.map((x) => {
-      if (!x || typeof x !== "object") return x;
-      const item = { ...(x as Record<string, unknown>) };
-      const sug = normalizeSuggestion(item.replySuggestion);
-      if (sug) item.replySuggestion = sug;
-      return item;
-    });
-  }
-  return obj;
-}
-

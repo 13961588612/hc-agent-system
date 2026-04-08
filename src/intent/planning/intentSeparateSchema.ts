@@ -1,7 +1,7 @@
 import { z } from "zod/v3";
 import { IntentTypeSchema } from "../../contracts/intentSchemas.js";
 
-export const Stage1IntentItemSchema = z.object({
+export const IntentSeparateItemSchema = z.object({
   intent: IntentTypeSchema,
   goal: z.string().optional(),
   /**
@@ -19,12 +19,12 @@ export const Stage1IntentItemSchema = z.object({
  * - intents[]: 意图、semanticTaskBrief（必）、goal、可选槽位/分段
  * - replyLocale/replySuggestion/confidence: 可选
  */
-export const Stage1IntentPayloadSchema = z.object({
-  intents: z.array(Stage1IntentItemSchema).min(1),
+export const IntentSeparatePayloadSchema = z.object({
+  intents: z.array(IntentSeparateItemSchema).min(1),
   replyLocale: z.enum(["zh", "en", "auto"]).optional(),
   confidence: z.number().optional(),
   replySuggestion: z.string().optional()
 });
 
-export type Stage1IntentPayload = z.infer<typeof Stage1IntentPayloadSchema>;
+export type IntentSeparatePayload = z.infer<typeof IntentSeparatePayloadSchema>;
 

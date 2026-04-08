@@ -5,12 +5,14 @@ import { applyDeterministicDataQueryPlanning } from "../intent/planning/dataQuer
 import { type Stage1IntentPayload } from "../intent/planning/stage1IntentSchema.js";
 import { buildSeedIntentResultFromStage1 } from "../intent/planning/stage1Seed.js";
 import {
+  applyIntentSeparate,
   buildIntentLlmUserContent,
   logIntentLlmModelOutput,
   parseIntentStage1Payload,
-  runIntentClassificationLlm,
+  runIntentSeparateLlm,
   type IntentLlmRawMessage
 } from "../intent/planning/intentSeparate.js";
+import { IntentSeparatePayload } from "../intent/planning/intentSeparateSchema.js";
 
 /** 阶段4：种子 IntentResult + data_query 程序化规划（含简述向量相似度） */
 async function applyIntentDeterministicDataQueryPlanning(
@@ -78,14 +80,9 @@ export async function runIntentClassifyAgent(
   );
 
   try {
-    const userContent = buildIntentLlmUserContent(state);
-    const rawMsg = await runIntentClassificationLlm(userContent);
-    lastRawMsg = rawMsg;
-    logIntentLlmModelOutput(rawMsg);
-
-    const stage1 = parseIntentStage1Payload(rawMsg);
+    const intentSeparatePayload: IntentSeparatePayload = await applyIntentSeparate(state);
     const { intent: patched, stats } = await applyIntentDeterministicDataQueryPlanning(
-      stage1,
+      intentSeparatePayload,
       userInput
     );
     log(
