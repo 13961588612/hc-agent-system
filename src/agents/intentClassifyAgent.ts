@@ -1,12 +1,12 @@
 import type { OrchestratorState } from "../contracts/schemas.js";
 import { getIntentResultSchema } from "../contracts/intentSchemas.js";
 import { log } from "../lib/log/log.js";
-import { applyIntentDeterministicPlanning } from "../intent/planning/deterministicPlanner.js";
+import { applyIntentDeterministicPlanning } from "../intent/plan/planner.js";
 import {
   applyIntentSeparate,
   type IntentLlmRawMessage
 } from "../intent/separate/intentSeparate.js";
-import { IntentSeparatePayload } from "../intent/separate/intentSeparateSchema.js";
+import { IntentSeparateResult } from "../intent/separate/intentSeparateSchema.js";
 
 /** 失败兜底：blocked 意图结果 */
 function buildIntentClassifyBlockedFallback(): NonNullable<
@@ -45,7 +45,8 @@ function buildIntentClassifyBlockedFallback(): NonNullable<
  * LLM 结构化意图 + 程序化 data_query 规划；与 `highLevelDomain` 在同一出口对齐。
  */
 export async function runIntentClassifyAgent(
-  state: OrchestratorState
+  state: OrchestratorState,
+  config?: { configurable?: { thread_id?: string } }
 ): Promise<
   Pick<
     OrchestratorState,
@@ -62,7 +63,7 @@ export async function runIntentClassifyAgent(
   );
 
   try {
-    const intentSeparatePayload: IntentSeparatePayload = await applyIntentSeparate(state);
+    const intentSeparatePayload: IntentSeparateResult = await applyIntentSeparate(state,config);
     const { intent: patched, stats } = await applyIntentDeterministicPlanning(
       intentSeparatePayload,
       userInput

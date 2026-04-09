@@ -19,7 +19,7 @@ function dashScopeEnableThinkingFromEnv(): boolean {
  * 根据 env 配置获取 ChatModel
  * 优先使用 DashScope (Qwen)，否则使用 OpenAI
  */
-export function getModel(): BaseChatModel {
+export function getModel(thinkMode = false, jsonMode = false): BaseChatModel {
   const env = getEnvConfig();
   if (env.dashscopeApiKey?.trim()) {
     const model = env.dashscopeModel ?? DEFAULT_DASHSCOPE_MODEL;
@@ -29,7 +29,8 @@ export function getModel(): BaseChatModel {
       configuration: { baseURL: env.dashscopeApiBase },
       /** 见阿里云「深度思考 / thinking」文档；非混合模型可能忽略该字段 */
       modelKwargs: {
-        enable_thinking: dashScopeEnableThinkingFromEnv()
+        enable_thinking: thinkMode,
+        response_format: jsonMode ? { type: "json_object" } : undefined
       }
     } as object);
     return llm as unknown as BaseChatModel;

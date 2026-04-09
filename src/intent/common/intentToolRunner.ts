@@ -41,9 +41,13 @@ export async function runIntentWithSkillTools(
     log("[Intent]", "LLM 单轮 invoke", `耗时=${Date.now() - t0}ms`);
     return out;
   }
-  const modelWithTools = bindTools.call(llm, [
-    ...tools
-  ]);
+  const modelWithTools = (
+    bindTools as (
+      this: typeof llm,
+      tools: unknown[],
+      kwargs?: { strict?: boolean }
+    ) => { invoke: (msgs: unknown) => Promise<unknown> }
+  ).call(llm, [...tools], { strict: true });
 
   const messages: Array<SystemMessage | HumanMessage | ToolMessage | { content: unknown; tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }> }> = [
     new SystemMessage(systemInstruction),

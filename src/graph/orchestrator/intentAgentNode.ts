@@ -51,7 +51,7 @@ export async function intentAgentNode(
   const t0 = Date.now();
   await emitProgressByConfig(config, "正在执行：步骤1 意图切分");
   log("[Orchestrator]", "node intent_agent 开始");
-  const out = await runIntentClassifyAgent(state);
+  const out = await runIntentClassifyAgent(state,config);
   const intentProgressSteps = buildIntentProgressSteps(state, out);
   log(
     "[Orchestrator]",

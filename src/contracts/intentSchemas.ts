@@ -14,7 +14,10 @@ export const IntentTypeSchema = z.enum([
   "unknown"
 ]);
 
+
+
 export type IntentType = z.infer<typeof IntentTypeSchema>;
+
 
 /** 规划步骤中选中的 skill 入口类型 */
 export const SelectedSkillKindSchema = z.enum(["skill", "guide"]);

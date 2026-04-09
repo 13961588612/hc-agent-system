@@ -306,3 +306,11 @@ export type OrchestratorState = {
   guideMissingParams?: string[];
   finalAnswer?: unknown;
 };
+
+
+export const SystemModuleIdSchema = z.enum([
+  "data_query",
+  "data_analysis",
+  "knowledge_qa"
+]);
+

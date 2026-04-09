@@ -3,7 +3,13 @@ import { getIntentResultSchema } from "../../contracts/intentSchemas.js";
 import { getSkillDetailById, listSkillsByDomainSegment } from "../../lib/skills/catalog.js";
 import type { SkillGuideEntry } from "../../lib/guides/types.js";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { getIntentLlmTimeoutMs } from "../../config/intentPolicy.js";
+import { log } from "../../lib/log/log.js";
 import { getModel } from "../../model/index.js";
+import {
+  ClarificationToneResultSchema,
+  getClarificationToneOutputParser
+} from "./clarificationToneOutputParser.js";
 import { buildIntentTaskStepsRulesInline } from "../common/intentPromptUtils.js";
 import {
   getReusableStepTemplate,
@@ -15,7 +21,7 @@ import {
   l2Normalize
 } from "../common/textEmbedding.js";
 import { buildSeedIntentResultFromIntentSeparate } from "../separate/intentSeparateSeed.js";
-import { IntentSeparatePayload } from "../separate/intentSeparateSchema.js";
+import { IntentSeparateResult } from "../separate/intentSeparateSchema.js";
 
 /** 程序化规划阶段统计信息 */
 export interface DeterministicPlanningStats {
@@ -129,10 +135,10 @@ function cosineToUnitInterval(cos: number): number {
 
 
 export async function applyIntentDeterministicPlanning(
-  intentSeparatePayload: IntentSeparatePayload,
+  intentSeparateResult: IntentSeparateResult,
   userInput: string
 ) {
-  const seed = buildSeedIntentResultFromIntentSeparate(intentSeparatePayload);
+  const seed = buildSeedIntentResultFromIntentSeparate(intentSeparateResult);
   return applyDeterministicDataQueryPlanning(
     getIntentResultSchema().parse(seed),
     userInput
@@ -159,7 +165,7 @@ export async function applyDeterministicDataQueryPlanning(
     // const programmatic = await applyProgrammaticPlanningRewrite(intent, userInput, stats);
     // const withTone =
     //   programmatic.uniqueMissing.length > 0
-    //     ? applyLlmHumorousPlanning(programmatic.intent, programmatic.uniqueMissing)
+    //     ? await applyLlmHumorousPlanning(programmatic.intent, programmatic.uniqueMissing)
     //     : programmatic.intent;
     // return { intent: withTone, stats };
     return { intent: await applyLlmPlanningRewrite(intent, userInput, null), stats };
@@ -292,11 +298,8 @@ async function applyProgrammaticPlanningRewrite(
   return { intent: ir, uniqueMissing };
 }
 
-/**
- * 子函数2：LLM 规划（轻量文案层）
- * 仅在「缺参需澄清」场景下追加更自然的澄清提示，不改变结构化规划结论。
- */
-function applyLlmHumorousPlanning(
+/** 澄清文案模板回退（与历史行为一致，不调用 LLM） */
+function applyHumorousPlanningLocal(
   intent: IntentResult,
   uniqueMissing: string[]
 ): IntentResult {
@@ -311,6 +314,71 @@ function applyLlmHumorousPlanning(
     ir.replySuggestion = "补充上面的信息后，我会继续按规划执行并返回结果。";
   }
   return ir;
+}
+
+/**
+ * 子函数2：LLM 规划（轻量文案层）
+ * 仅在「缺参需澄清」场景下生成更自然的澄清话术；结构化字段由 Zod 校验，与 {@link runIntentSeparateLlm} 同源模式。
+ */
+async function applyLlmHumorousPlanning(
+  intent: IntentResult,
+  uniqueMissing: string[]
+): Promise<IntentResult> {
+  const timeoutMs = getIntentLlmTimeoutMs();
+  log("[Intent]", "澄清文案 LLM（StructuredOutput）", `开始 timeoutMs=${timeoutMs}`);
+  const t0 = Date.now();
+  try {
+    const base = getModel(false, true) as unknown as {
+      withStructuredOutput: (
+        p: ReturnType<typeof getClarificationToneOutputParser>
+      ) => { invoke: (input: unknown) => Promise<unknown> };
+    };
+    const chain = base.withStructuredOutput(getClarificationToneOutputParser());
+    const raw = await Promise.race([
+      chain.invoke([
+        new SystemMessage(
+          "你是客服助手。用户查询尚缺必要信息。请根据 missingItems 生成自然、简短的澄清问句（clarificationQuestion），" +
+            "可选给出 replySuggestion。使用简体中文；须明确列出待补充项；勿编造已提供的业务数据。"
+        ),
+        new HumanMessage(
+          JSON.stringify(
+            {
+              missingItems: uniqueMissing,
+              priorClarification: intent.clarificationQuestion ?? null,
+              priorReplySuggestion: intent.replySuggestion ?? null
+            },
+            null,
+            2
+          )
+        )
+      ]),
+      new Promise<never>((_, rej) => {
+        setTimeout(() => rej(new Error("clarification_tone_llm_timeout")), timeoutMs);
+      })
+    ]);
+    const parsed = ClarificationToneResultSchema.safeParse(raw);
+    if (!parsed.success) {
+      log("[Intent]", "澄清文案 StructuredOutput 校验失败，回退模板", parsed.error.message);
+      return applyHumorousPlanningLocal(intent, uniqueMissing);
+    }
+    const payload = parsed.data;
+    const ir = structuredClone(intent) as IntentResult;
+    ir.clarificationQuestion = payload.clarificationQuestion.trim();
+    const sug = toStr(payload.replySuggestion);
+    if (sug) ir.replySuggestion = sug;
+    else if (!toStr(ir.replySuggestion)) {
+      ir.replySuggestion = "补充上面的信息后，我会继续按规划执行并返回结果。";
+    }
+    log("[Intent]", "澄清文案 LLM（StructuredOutput）", `结束 耗时=${Date.now() - t0}ms`);
+    return ir;
+  } catch (e) {
+    log(
+      "[Intent]",
+      "澄清文案 LLM 异常，回退模板",
+      e instanceof Error ? e.message : String(e)
+    );
+    return applyHumorousPlanningLocal(intent, uniqueMissing);
+  }
 }
 
 /**
@@ -375,7 +443,7 @@ async function tryBuildPlanByExternalModel(
 ): Promise<IntentResult | undefined> {
   const errMsg = toStr(error instanceof Error ? error.message : error) ?? "unknown_error";
   const model = getModel();
-  const systemPrompt = `你是 data_query 任务拆解规划器。
+  const systemPrompt = `你是 data_query 任务拆解规划器。必须使用工具 list_skills_by_domain_segment，查看skillId对应的skill信息，并选择合适的skillId。
 ${buildIntentTaskStepsRulesInline()}`;
   const userPrompt = JSON.stringify(
     {

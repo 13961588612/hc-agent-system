@@ -5,6 +5,7 @@ import {
   listSkillsSegments,
   listSystemModuleDomains
 } from "../../config/systemConfig.js";
+import { getIntentSeparateOutputParser } from "../separate/intentSeparateOutputParser.js";
 
 /**
  * 与业务 Guide 文档 id 对齐，仅用于 invoke_skill 拦截（避免重复拉取）；
@@ -12,16 +13,16 @@ import {
  */
 export const INTENT_COMMON_GUIDE_ID = "intent-planning-decompose-and-orchestrate";
 
-/** 第一阶段意图识别：规则内联在代码中，与 Stage1IntentPayloadSchema 一致 */
+/** 第一阶段意图识别：规则内联在代码中，与 IntentSeparateResultSchema 一致 */
 function buildIntentSeparateRulesInline(): string {
   return `【第一阶段：轻量意图识别（仅下列 JSON 字段）】
-- 根据系统 domain segment配置，拆分任务。
+- 根据系统 domain、segment 配置拆分任务。
 - 输出唯一一个 JSON 对象，不要附加说明文字。
-- intents[]：至少 1 条；每条**必须**含 semanticTaskBrief,intent ;itent可取值 'data_query' | 'data_analysis' | 'knowledge_qa' | 'chitchat' | 'unknown'。
-- semanticTaskBrief：不含手机号/会员号/订单号等具体值的「语义完备的任务描述」，说明要有哪些条件、做哪类事、涉及哪类业务对象或数据（例如「按会员卡号查询近期积分流水明细,按手机号查询会员积分账户信息」）；具体标识一律放 resolvedSlots，勿写入本字段。
-- domainId、segmentId：与 semanticTaskBrief 对应的 domainId、segmentId。
-- 可选：confidence、resolvedSlots、confidence、replySuggestion、goal。
-- 根级可选：confidence、replySuggestion。
+- intents[]：至少 1 条；每条**必须**含 semanticTaskBrief、intent；intent 取值须为：data_query | data_analysis | knowledge_qa | chitchat | unknown（与代码校验一致）。
+- semanticTaskBrief：不含手机号/会员号/订单号等具体值的「语义完备的任务描述」，说明要有哪些条件、做哪类事、涉及哪类业务对象或数据；具体标识一律放 resolvedSlots，勿写入本字段。
+- domainId、segmentId：与该项任务语义对应的域/分段（可选，但与配置列表对齐）。
+- 每条可选：goal、confidence、resolvedSlots、replySuggestion。
+- 根级可选：replyLocale（与 schema 枚举一致）、confidence、replySuggestion。
 - 不要输出其他字段。
 - 不要拆分到各个步骤，如果多个步骤组合完成一个任务，应该整合在一个任务里。
 - 一个任务不应跨多个 domain/segment，如果一个任务跨多个 domain/segment，应该拆分为多个任务。
@@ -87,12 +88,15 @@ ${businessBlock}`;
 export function buildIntentSeparateInstruction(): string {
   const systemContext = getSystemContextForIntentPrompt();
   const intentSeparateRules = buildIntentSeparateRulesInline();
+  const formatInstructions = getIntentSeparateOutputParser().getFormatInstructions();
 
   return `你是客服场景的多意图识别与任务拆解器。
 ${intentSeparateRules}
 不要执行真实 SQL、不要在本阶段跑业务查询。
 ${systemContext}
 
+【结构化输出】须严格满足下列格式说明（与程序侧 StructuredOutputParser 一致）：
+${formatInstructions}
 `;
 }
 
