@@ -78,7 +78,7 @@ export async function runIntentClassifyAgent(
     log(
       "[Intent]",
       "classify 失败（将返回 blocked 兜底）",
-      `${msg}${lastRawMsg ? ` | raw=${JSON.stringify(lastRawMsg).slice(0, 1200)}` : ""}`,
+      `${msg}${lastRawMsg ? ` | raw=${JSON.stringify(lastRawMsg).slice(0, 2000)}` : ""}`,
       tAll
     );
     return {
