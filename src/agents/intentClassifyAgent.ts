@@ -1,30 +1,12 @@
 import type { OrchestratorState } from "../contracts/schemas.js";
 import { getIntentResultSchema } from "../contracts/intentSchemas.js";
 import { log } from "../lib/log/log.js";
-import { applyDeterministicDataQueryPlanning } from "../intent/planning/dataQueryDeterministicPlanner.js";
-import { type Stage1IntentPayload } from "../intent/planning/stage1IntentSchema.js";
-import { buildSeedIntentResultFromStage1 } from "../intent/planning/stage1Seed.js";
+import { applyIntentDeterministicPlanning } from "../intent/planning/deterministicPlanner.js";
 import {
   applyIntentSeparate,
-  buildIntentLlmUserContent,
-  logIntentLlmModelOutput,
-  parseIntentStage1Payload,
-  runIntentSeparateLlm,
   type IntentLlmRawMessage
-} from "../intent/planning/intentSeparate.js";
-import { IntentSeparatePayload } from "../intent/planning/intentSeparateSchema.js";
-
-/** 阶段4：种子 IntentResult + data_query 程序化规划（含简述向量相似度） */
-async function applyIntentDeterministicDataQueryPlanning(
-  stage1: Stage1IntentPayload,
-  userInput: string
-) {
-  const seed = buildSeedIntentResultFromStage1(stage1);
-  return applyDeterministicDataQueryPlanning(
-    getIntentResultSchema().parse(seed),
-    userInput
-  );
-}
+} from "../intent/separate/intentSeparate.js";
+import { IntentSeparatePayload } from "../intent/separate/intentSeparateSchema.js";
 
 /** 失败兜底：blocked 意图结果 */
 function buildIntentClassifyBlockedFallback(): NonNullable<
@@ -81,7 +63,7 @@ export async function runIntentClassifyAgent(
 
   try {
     const intentSeparatePayload: IntentSeparatePayload = await applyIntentSeparate(state);
-    const { intent: patched, stats } = await applyIntentDeterministicDataQueryPlanning(
+    const { intent: patched, stats } = await applyIntentDeterministicPlanning(
       intentSeparatePayload,
       userInput
     );

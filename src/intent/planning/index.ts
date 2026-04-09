@@ -1,10 +1,10 @@
-export { applyDeterministicDataQueryPlanning } from "./dataQueryDeterministicPlanner.js";
-export type { DeterministicPlanningStats } from "./dataQueryDeterministicPlanner.js";
+export { applyDeterministicDataQueryPlanning } from "./deterministicPlanner.js";
+export type { DeterministicPlanningStats } from "./deterministicPlanner.js";
 export {
   Stage1IntentPayloadSchema,
   type Stage1IntentPayload
-} from "./intentSeparateSchema.js";
-export { buildSeedIntentResultFromStage1 } from "./intentSeparateSeed.js";
+} from "../separate/intentSeparateSchema.js";
+export { buildSeedIntentResultFromStage1 } from "../separate/intentSeparateSeed.js";
 export {
   getReusableStepTemplate,
   saveReusableStepTemplate

@@ -134,7 +134,7 @@ function ioSummariesForMeta(s: AnySkillMeta): {
 
 function generateSkillByGuide(guide: SkillGuideEntry): AnySkillMeta {
   const capabilities: SkillCapabilityBrief[] = [
-    { id: guide.id, ...(guide.description ? { description: guide.description } : {}) }
+    //{ id: guide.id, ...(guide.description ? { description: guide.description } : {}) }
   ];
   const inputSchema = buildInputSchemaFromGuide(guide);
   const outputSchema = buildOutputSchemaFromGuide(guide);

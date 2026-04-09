@@ -3,12 +3,12 @@ import { getSkillDetailById, listSkillsByDomainSegment } from "../skills/catalog
 import type { SkillOrGuideDetail } from "../skills/type.js";
 
 const listSkillsInputSchema = z.object({
-  domainId: z.string().describe("技能顶层域，如 data_analysis/data_query/common"),
-  segmentId: z.string().describe("业务分段，如 member/ecommerce/finance/other")
+  domainId: z.string().describe("技能顶层域，不支持通过分隔符一次传入多个值"),
+  segmentId: z.string().describe("业务分段，不支持通过分隔符一次传入多个值")
 });
 
 const invokeSkillInputSchema = z.object({
-  skillId: z.string().describe("技能 id，如 guide-member-profile ")
+  skillId: z.string().describe("技能 id，如 member-profile-by-user-id ")
 });
 
 export const listSkillsByDomainSegmentTool = {

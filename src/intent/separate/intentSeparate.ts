@@ -10,8 +10,8 @@ import {
 } from "./intentSeparateSchema.js";
 import {
   buildIntentSeparateInstruction
-} from "./intentPromptUtils.js";
-import { runIntentWithSkillTools } from "./intentToolRunner.js";
+} from "../common/intentPromptUtils.js";
+import { runIntentWithSkillTools } from "../common/intentToolRunner.js";
 import { allTools } from "../../lib/tools/tools.js";
 
 /** LLM 返回（仅关心 content / tool_calls） */

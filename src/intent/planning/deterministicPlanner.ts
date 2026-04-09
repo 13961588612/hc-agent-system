@@ -4,7 +4,7 @@ import { getSkillDetailById, listSkillsByDomainSegment } from "../../lib/skills/
 import type { SkillGuideEntry } from "../../lib/guides/types.js";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getModel } from "../../model/index.js";
-import { buildIntentTaskStepsRulesInline } from "./intentPromptUtils.js";
+import { buildIntentTaskStepsRulesInline } from "../common/intentPromptUtils.js";
 import {
   getReusableStepTemplate,
   saveReusableStepTemplate
@@ -13,7 +13,9 @@ import {
   dotProduct,
   fetchTextEmbedding,
   l2Normalize
-} from "../../intent/planning/textEmbedding.js";
+} from "../common/textEmbedding.js";
+import { buildSeedIntentResultFromIntentSeparate } from "../separate/intentSeparateSeed.js";
+import { IntentSeparatePayload } from "../separate/intentSeparateSchema.js";
 
 /** 程序化规划阶段统计信息 */
 export interface DeterministicPlanningStats {
@@ -124,6 +126,19 @@ function cosineToUnitInterval(cos: number): number {
   return Math.max(0, Math.min(1, (cos + 1) / 2));
 }
 
+
+
+export async function applyIntentDeterministicPlanning(
+  intentSeparatePayload: IntentSeparatePayload,
+  userInput: string
+) {
+  const seed = buildSeedIntentResultFromIntentSeparate(intentSeparatePayload);
+  return applyDeterministicDataQueryPlanning(
+    getIntentResultSchema().parse(seed),
+    userInput
+  );
+}
+
 /**
  * 对 data_query 做程序化规划回写：
  * - 统一生成/补齐 planningTasks 与 skillSteps
@@ -141,12 +156,13 @@ export async function applyDeterministicDataQueryPlanning(
     generatedTasks: 0
   };
   try {
-    const programmatic = await applyProgrammaticPlanningRewrite(intent, userInput, stats);
-    const withTone =
-      programmatic.uniqueMissing.length > 0
-        ? applyLlmHumorousPlanning(programmatic.intent, programmatic.uniqueMissing)
-        : programmatic.intent;
-    return { intent: withTone, stats };
+    // const programmatic = await applyProgrammaticPlanningRewrite(intent, userInput, stats);
+    // const withTone =
+    //   programmatic.uniqueMissing.length > 0
+    //     ? applyLlmHumorousPlanning(programmatic.intent, programmatic.uniqueMissing)
+    //     : programmatic.intent;
+    // return { intent: withTone, stats };
+    return { intent: await applyLlmPlanningRewrite(intent, userInput, null), stats };
   } catch (error) {
     return { intent: await applyLlmPlanningRewrite(intent, userInput, error), stats };
   }

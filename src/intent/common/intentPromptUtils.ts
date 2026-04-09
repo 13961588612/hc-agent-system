@@ -25,6 +25,7 @@ function buildIntentSeparateRulesInline(): string {
 - 不要输出其他字段。
 - 不要拆分到各个步骤，如果多个步骤组合完成一个任务，应该整合在一个任务里。
 - 一个任务不应跨多个 domain/segment，如果一个任务跨多个 domain/segment，应该拆分为多个任务。
+- 查询技能列表时，同一domainId/segmentId只查询一次，不要重复查询。
 `;
 }
 
@@ -77,9 +78,9 @@ function formatSystemContextForIntentPrompt(): string {
 
   return `【当前系统信息】（来自 config/system.yaml，用于选对 domain/segment）
 - 配置 version：${ver}
-- 系统模块（systemModuleId，与 intents 语义一致，如 data_query / data_analysis / knowledge_qa）：
+- 系统域（domains）：
 ${moduleBlock}
-- 业务分段（用于 intents[].segmentId）：
+- 业务域（segments）：
 ${businessBlock}`;
 }
 

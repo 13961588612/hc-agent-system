@@ -9,6 +9,15 @@ import { runInvokeSkillTool } from "../../lib/tools/skillsTools.js";
 import { allTools, TOOL_HANDLERS } from "../../lib/tools/tools.js";
 import { INTENT_COMMON_GUIDE_ID } from "./intentPromptUtils.js";
 
+/** 参数键排序后 JSON，便于判断「同工具 + 同参」（跨轮次复用结果） */
+function toolArgsCacheKey(args: Record<string, unknown>): string {
+  const sorted: Record<string, unknown> = {};
+  for (const k of Object.keys(args).sort()) {
+    sorted[k] = args[k];
+  }
+  return JSON.stringify(sorted);
+}
+
 export async function runIntentWithSkillTools(
   systemInstruction: string,
   userPrompt: string,
@@ -47,6 +56,10 @@ export async function runIntentWithSkillTools(
     "prompt 规模（意图阶段）",
     `systemChars=${systemInstruction.length} userChars=${userPrompt.length} toolMaxRounds=${maxToolRounds} invokeBodyMaxChars=${bodyMax ?? "full"}`
   );
+
+  /** 单次意图 invoke 内跨多轮 LLM：相同 tool + 相同参数只执行一次 */
+  const toolResultCache = new Map<string, string>();
+
   for (let i = 0; i < maxToolRounds; i++) {
     const tRound = Date.now();
     const aiMsg = (await modelWithTools.invoke(messages)) as {
@@ -69,10 +82,28 @@ export async function runIntentWithSkillTools(
 
     messages.push(aiMsg);
     if (calls.length === 0) return aiMsg;
+
     for (let j = 0; j < calls.length; j++) {
       const c = calls[j]!;
       const name = c.name ?? "";
-      const args = c.args ?? {};
+      const args = (c.args ?? {}) as Record<string, unknown>;
+      const dedupeKey = `${name}\0${toolArgsCacheKey(args)}`;
+      const cached = toolResultCache.get(dedupeKey);
+      if (cached !== undefined) {
+        log(
+          "[Intent]",
+          "tool 去重命中（多轮共享缓存）",
+          `${name} llmRound=${i + 1} idx=${j}`
+        );
+        messages.push(
+          new ToolMessage({
+            tool_call_id: c.id ?? `call_${i}_${j}`,
+            content: cached
+          })
+        );
+        continue;
+      }
+
       let toolResult = JSON.stringify({ ok: false, error: `unknown tool: ${name}` });
       try {
         if (name === "invoke_skill") {
@@ -99,6 +130,7 @@ export async function runIntentWithSkillTools(
           error: e instanceof Error ? e.message : String(e)
         });
       }
+      toolResultCache.set(dedupeKey, toolResult);
       messages.push(
         new ToolMessage({
           tool_call_id: c.id ?? `call_${i}_${j}`,
