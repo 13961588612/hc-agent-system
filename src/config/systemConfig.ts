@@ -2,39 +2,29 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
-/**
- * 域/分段在配置中的**分类维度**（可多选）：
- * - `business`：业务线，如 member、ecommerce、finance 等
- * - `skills`：技能，如 sql-query、invoke-skill 等
- * - `system-module`：系统模块，如 data_query、data_analysis、smart_form 等agent模块功能划分
- */
-export const SYSTEM_FACETS = ["business", "skills", "system-module"] as const;
-export type SystemFacet = (typeof SYSTEM_FACETS)[number];
-
-export interface SystemDomainEntry {
-  /** 唯一 id，可与 SkillDomain、业务域名对齐 */
+export interface SystemModuleEntry {
+  /** 唯一 id，可与 systemModuleId 对齐 */
   id: string;
   /** 展示用短标题 */
   title?: string;
   /** 说明，供文档与运维 */
   description?: string;
-  /** 可同时属于多个分类维度 */
-  facets: SystemFacet[];
 }
 
-export interface SystemSegmentEntry {
+export interface SystemDomainEntry {
   /** 唯一 id，可与 SkillSegment、QueryDomain 对齐 */
   id: string;
   title?: string;
   description?: string;
-  facets: SystemFacet[];
+  /** domain 支持 facets（如 business/skills） */
+  facets?: string[];
 }
 
 export interface SystemConfig {
   /** 配置格式版本，便于迁移 */
   version?: number;
+  modules: SystemModuleEntry[];
   domains: SystemDomainEntry[];
-  segments: SystemSegmentEntry[];
   /** 渠道回复展示相关配置 */
   channelReply?: {
     table?: {
@@ -48,26 +38,25 @@ export interface SystemConfig {
   };
 }
 
-let singleton: SystemConfig | null = null;
+let singleton: SystemConfig;
+let initialized: boolean = false;
 
-function isSystemFacet(s: string): s is SystemFacet {
-  return (SYSTEM_FACETS as readonly string[]).includes(s);
-}
-
-function normalizeFacets(raw: unknown, ctx: string): SystemFacet[] {
-  if (!Array.isArray(raw)) {
-    console.warn(`[SystemConfig] ${ctx} facets 缺失或非数组，已忽略`);
-    return [];
+function normalizeModule(
+  raw: unknown,
+  index: number
+): SystemModuleEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === "string" ? o.id.trim() : "";
+  if (!id) {
+    console.warn(`[SystemConfig] modules[${index}] 缺少 id，已跳过`);
+    return null;
   }
-  const out: SystemFacet[] = [];
-  for (const x of raw) {
-    if (typeof x !== "string" || !isSystemFacet(x)) {
-      console.warn(`[SystemConfig] ${ctx} 非法 facet: ${String(x)}，已跳过`);
-      continue;
-    }
-    if (!out.includes(x)) out.push(x);
-  }
-  return out;
+  return {
+    id,
+    title: typeof o.title === "string" ? o.title : undefined,
+    description: typeof o.description === "string" ? o.description : undefined
+  };
 }
 
 function normalizeDomain(raw: unknown, index: number): SystemDomainEntry | null {
@@ -82,33 +71,19 @@ function normalizeDomain(raw: unknown, index: number): SystemDomainEntry | null 
     id,
     title: typeof o.title === "string" ? o.title : undefined,
     description: typeof o.description === "string" ? o.description : undefined,
-    facets: normalizeFacets(o.facets, `domains[${id}]`)
-  };
-}
-
-function normalizeSegment(raw: unknown, index: number): SystemSegmentEntry | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
-  const id = typeof o.id === "string" ? o.id.trim() : "";
-  if (!id) {
-    console.warn(`[SystemConfig] segments[${index}] 缺少 id，已跳过`);
-    return null;
-  }
-  return {
-    id,
-    title: typeof o.title === "string" ? o.title : undefined,
-    description: typeof o.description === "string" ? o.description : undefined,
-    facets: normalizeFacets(o.facets, `segments[${id}]`)
+    facets: Array.isArray(o.facets)
+      ? o.facets.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean)
+      : undefined
   };
 }
 
 /**
  * 未调用 {@link initSystemConfig} 注入、或加载失败/为空时的占位配置（无内置业务域/分段）。
- * 已冻结，请勿就地修改；问数域枚举见 {@link listQuerySegmentIds}（空 segments 时仍为 `["other"]`）。
+ * 已冻结，请勿就地修改；问数域枚举见 {@link listQuerySegmentIds}（空 domains 时仍为 `["other"]`）。
  */
 const EMPTY_SYSTEM_CONFIG = Object.freeze({
+  modules: Object.freeze([] as SystemModuleEntry[]),
   domains: Object.freeze([] as SystemDomainEntry[]),
-  segments: Object.freeze([] as SystemSegmentEntry[]),
   channelReply: Object.freeze({
     table: Object.freeze({
       maxRows: 20,
@@ -131,22 +106,28 @@ function parseRoot(parsed: unknown): SystemConfig | null {
       ? root.version
       : undefined;
 
-  const domainsRaw = root.domains;
-  const segmentsRaw = root.segments;
+  const moduleRaw = root.module;
+  const systemModuleRaw = root["system-module"];
+  const modulesRaw = Array.isArray(moduleRaw)
+    ? moduleRaw
+    : Array.isArray(systemModuleRaw)
+      ? systemModuleRaw
+      : undefined;
+  const domainsRaw = Array.isArray(root.domains) ? root.domains : root.segments;
+
+  const modules: SystemModuleEntry[] = [];
+  if (Array.isArray(modulesRaw)) {
+    modulesRaw.forEach((row, i) => {
+      const d = normalizeModule(row, i);
+      if (d) modules.push(d);
+    });
+  }
 
   const domains: SystemDomainEntry[] = [];
   if (Array.isArray(domainsRaw)) {
     domainsRaw.forEach((row, i) => {
       const d = normalizeDomain(row, i);
       if (d) domains.push(d);
-    });
-  }
-
-  const segments: SystemSegmentEntry[] = [];
-  if (Array.isArray(segmentsRaw)) {
-    segmentsRaw.forEach((row, i) => {
-      const s = normalizeSegment(row, i);
-      if (s) segments.push(s);
     });
   }
 
@@ -173,8 +154,8 @@ function parseRoot(parsed: unknown): SystemConfig | null {
 
   return {
     version,
+    modules,
     domains,
-    segments,
     channelReply: {
       table: {
         maxRows,
@@ -213,89 +194,51 @@ export async function loadSystemConfigFromFile(): Promise<SystemConfig | null> {
   return config;
 }
 
-/** 由 {@link initSystemConfig} 在启动时注入；未初始化或加载失败时为冻结的空壳（domains/segments 皆空） */
-export function getSystemConfig(): SystemConfig {
-  return singleton ?? EMPTY_SYSTEM_CONFIG;
+function initSystemConfig(systemConfig: SystemConfig): void {
+  singleton = systemConfig;
+  initialized = true;
 }
 
-/**
- * 启动时调用一次：`loaded` 含有效 domains 或 segments 时写入单例；否则单例置空（`getSystemConfig` 返回空壳）。
- */
-export function initSystemConfig(loaded: SystemConfig | null): void {
-  if (loaded && (loaded.domains.length > 0 || loaded.segments.length > 0)) {
-    singleton = loaded;
-    return;
+/** 由 {@link initSystemConfig} 在启动时注入；未初始化或加载失败时为冻结的空壳（modules/domains 皆空） */
+export async function getSystemConfig(): Promise<SystemConfig> {
+  if(!initialized) {
+    const config = await loadSystemConfigFromFile();
+    if(config) {
+      singleton = config;
+    }else{
+      singleton = EMPTY_SYSTEM_CONFIG;
+    }
+    initialized = true;
   }
-  if (loaded && loaded.domains.length === 0 && loaded.segments.length === 0) {
-    console.warn(
-      "[SystemConfig] 文件存在但 domains/segments 均为空，请检查 system.yaml；当前使用空配置"
-    );
-  }
-  singleton = null;
+  return singleton;
 }
 
 /** 测试或热替换用 */
 export function resetSystemConfigForTests(): void {
-  singleton = null;
+  singleton = EMPTY_SYSTEM_CONFIG;
+  initialized = false;
 }
 
-export function getDomainEntry(id: string,config: SystemConfig = getSystemConfig()): SystemDomainEntry | undefined {
-  if(!config) return undefined;
-  return config.domains.find((d) => d.id === id);
+export async function getModuleEntry(id: string): Promise<SystemModuleEntry | null> {
+  const config = await getSystemConfig();
+  return config.modules.find((m) => m.id === id) ?? null;
 }
 
-export function getSegmentEntry(id: string,config: SystemConfig = getSystemConfig()): SystemSegmentEntry | undefined {
-  if(!config) return undefined;
-  return config.segments.find((s) => s.id === id);
+export async function getDomainEntry(id: string): Promise<SystemDomainEntry | null> {
+  const config = await getSystemConfig();
+  return config.domains.find((d) => d.id === id) ?? null;
 }
 
-export function listDomainByFacets(facets: SystemFacet[],config: SystemConfig = getSystemConfig()): SystemDomainEntry[] {
+export async function listModules(): Promise<SystemModuleEntry[]> {
+  const config = await getSystemConfig();
+  return config.modules;
+}
+
+export async function listBusinessDomains(): Promise<SystemDomainEntry[]> {
+  const config = await getSystemConfig();
   if(!config) return [];
-  return config.domains.filter((d) => facets.every((f) => d.facets.includes(f)));
-}
-
-export function listSegmentByFacets(facets: SystemFacet[],config: SystemConfig = getSystemConfig()): SystemSegmentEntry[] {
-  if(!config) return [];
-  return config.segments.filter((s) => facets.every((f) => s.facets.includes(f)));
-}
-
-export function listSystemModuleDomains(config: SystemConfig = getSystemConfig()): SystemDomainEntry[] {
-  if(!config) return [];
-  return listDomainByFacets(["system-module"],config);
-}
-
-export function listSkillsDomains(config: SystemConfig = getSystemConfig()): SystemDomainEntry[] {
-  if(!config) return [];
-  return listDomainByFacets(["skills"],config);
-}
-
-export function listBusinessSegments(config: SystemConfig = getSystemConfig()): SystemSegmentEntry[] {
-  if(!config) return [];
-  return listSegmentByFacets(["business"],config);
-}
-
-export function listSkillsSegments(config: SystemConfig = getSystemConfig()): SystemSegmentEntry[] {
-  if(!config) return [];
-  return listSegmentByFacets(["skills"],config);
-}
-
-export function listBusinessSegmentIds(config: SystemConfig = getSystemConfig()): string[] {
-  if(!config) return [];
-  return listSegmentByFacets(["business"],config).map((s) => s.id);
-}
-
-/** 兼容旧命名：问数域 segment ids（等价于 business segments） */
-export function listQuerySegmentIds(config: SystemConfig = getSystemConfig()): string[] {
-  return listBusinessSegmentIds(config);
-}
-
-/**
- * 供 Zod `z.enum` 使用（至少一个元素）；与 {@link listBusinessSegmentIds} 同源。
- */
-export function businessSegmentZodEnumValues(
-  config: SystemConfig = getSystemConfig()
-): [string, ...string[]] {
-  const ids = listBusinessSegmentIds(config);
-  return ids as [string, ...string[]];
+  return config.domains.filter((d) =>
+    Array.isArray(d.facets) && d.facets.length > 0 && d.facets.includes("business")
+  );
 }
 

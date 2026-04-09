@@ -8,62 +8,56 @@ import {
 
 /** 与 `buildIntentResultSchema` 内 followUpAction 对齐，供规划层复用 */
 const FollowUpActionSchema = z.object({
-  type: z.enum(["write_artifact", "reply_channel", "invoke_agent", "none"]),
-  params: z.record(z.string(), z.unknown()).optional()
-});
+  type: z.enum(["write_artifact", "reply_channel", "invoke_agent", "none"]).describe("后续动作类型"),
+  params: z.record(z.string(), z.unknown()).optional().describe("后续动作参数")
+}).describe("步骤/任务执行后的后续动作定义");
 
 const OutputTypeSchema = z.string();
+/** 与 IntentResult.planningTasks[].systemModuleId 对齐 */
+const systemModuleIdSchema = z.string().describe("系统模块 id（如 data_query/data_analysis）");
 
 /**
  * 规划步骤（skill 链中的一步），语义对齐 IntentResult.planningTasks[].skillSteps[]。
  */
-export const PlanSkillStepSchema = z.object({
-  stepId: z.string(),
-  skillsDomainId: z.string(),
-  skillsSegmentId: z.string().optional(),
-  disclosedSkillIds: z.array(z.string()).optional(),
-  selectedSkillId: z.string().optional(),
-  selectedSkillKind: SelectedSkillKindSchema.optional(),
-  requiredParams: z.array(z.string()).optional(),
-  providedParams: z.record(z.string(), z.unknown()).optional(),
-  missingParams: z.array(z.string()).optional(),
-  executable: z.boolean().optional(),
-  executionSkillId: z.string().optional(),
-  dbClientKey: z.string().optional(),
-  expectedOutput: OutputTypeSchema.optional(),
-  followUpActions: z.array(FollowUpActionSchema).optional()
-});
+export const StepSchema = z.object({
+  stepId: z.string().describe("步骤唯一标识"),
+  skillsDomainId: z.string().describe("技能域 id"),
+  skillsSegmentId: z.string().optional().describe("技能分段 id"),
+  disclosedSkillIds: z.array(z.string()).optional().describe("披露阶段返回的候选 skill id 列表"),
+  selectedSkillId: z.string().optional().describe("当前步骤选中的 skill/guide id"),
+  selectedSkillKind: SelectedSkillKindSchema.optional().describe("选中入口类型"),
+  requiredParams: z.array(z.string()).optional().describe("步骤要求的参数名列表"),
+  providedParams: z.record(z.string(), z.unknown()).optional().describe("当前已提供参数"),
+  missingParams: z.array(z.string()).optional().describe("当前仍缺失参数名列表"),
+  executable: z.boolean().optional().describe("当前步骤是否可执行"),
+  executionSkillId: z.string().optional().describe("实际执行用技能 id"),
+  dbClientKey: z.string().optional().describe("数据库连接键"),
+  expectedOutput: OutputTypeSchema.optional().describe("预期输出格式"),
+  followUpActions: z.array(FollowUpActionSchema).optional().describe("步骤完成后的后续动作")
+}).describe("规划步骤（与 IntentResult.planningTasks[].skillSteps[] 对齐）");
 
 /**
  * 单条「子任务」：对应原扁平 `planningTasks[]` 中的一行；
  * 多个子任务挂在同一 {@link PlanGroupSchema} 下，表示同一 `intentSeparateItem` 拆出的多步/多模块工作。
  */
-export const PlanSubTaskSchema = z.object({
-  taskId: z.string(),
-  systemModuleId: z.string(),
-  goal: z.string(),
-  resolvedSlots: z.record(z.string(), z.unknown()).optional(),
-  missingSlots: z.array(z.string()).optional(),
-  clarificationQuestion: z.string().optional(),
-  executable: z.boolean().optional(),
-  skillSteps: z.array(PlanSkillStepSchema).optional(),
-  expectedOutput: OutputTypeSchema.optional(),
-  followUpActions: z.array(FollowUpActionSchema).optional()
-});
-
-/**
- * 一个 intentSeparate 子意图对应一个「任务组」：
- * - 与 `intentSeparateResult.intents[i]` 一一对应（通过 `separateItemIndex`）
- * - `subTasks` 为该子意图下的多条执行单元（原模型中多条 planning task）
- */
-export const PlanGroupSchema = z.object({
+export const TaskSchema = z.object({
+  taskId: z.string().describe("任务唯一标识"),
+  systemModuleId: systemModuleIdSchema.describe("任务所属系统模块"),
+  goal: z.string().describe("任务目标描述"),
+  resolvedSlots: z.record(z.string(), z.unknown()).optional().describe("任务级已解析槽位"),
+  missingSlots: z.array(z.string()).optional().describe("任务级缺失槽位"),
+  clarificationQuestion: z.string().optional().describe("任务级澄清问题"),
+  executable: z.boolean().optional().describe("任务是否可执行"),
+  steps: z.array(StepSchema).optional().describe("任务下的执行步骤"),
+  expectedOutput: OutputTypeSchema.optional().describe("任务预期输出格式"),
+  followUpActions: z.array(FollowUpActionSchema).optional().describe("任务完成后的后续动作"),
   /** 对应 `intentSeparateResult.intents` 的下标（0-based） */
-  separateItemIndex: z.number().int().min(0),
+  separateIntentItemIndex: z.number().int().min(0).describe("对应 intentSeparateResult.intents 的下标"),
   /** 可选快照，便于校验与离线展示；若提供应与 `intents[separateItemIndex]` 一致 */
-  intentItem: IntentSeparateItemSchema.optional(),
-  /** 该子意图下的多条子任务，至少一条 */
-  subTasks: z.array(PlanSubTaskSchema).min(1)
-});
+  intentItem: IntentSeparateItemSchema.optional().describe("可选：对应意图项快照")
+
+}).describe("单条子任务定义（对应原 planningTasks[] 中一行）");
+
 
 /**
  * 基于阶段一 `intentSeparateResult` 的规划结构：
@@ -74,32 +68,32 @@ export const PlanSchema = z
   .object({
     intentSeparateResult: IntentSeparateResultSchema,
     planVersion: z.string().optional().describe("规划结构版本，便于协议演进"),
-    groups: z.array(PlanGroupSchema).min(1)
+    tasks: z.array(TaskSchema).min(0)
   })
   .superRefine((data, ctx) => {
     const n = data.intentSeparateResult.intents.length;
-    if (data.groups.length !== n) {
+    if (data.tasks.length !== n) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `groups 条数（${data.groups.length}）须与 intentSeparateResult.intents 条数（${n}）一致`
+        message: `tasks 条数（${data.tasks.length}）须与 intentSeparateResult.intents 条数（${n}）一致`
       });
       return;
     }
     const seen = new Set<number>();
-    for (const g of data.groups) {
-      if (g.separateItemIndex < 0 || g.separateItemIndex >= n) {
+    for (const t of data.tasks) {
+      if (t.separateIntentItemIndex < 0 || t.separateIntentItemIndex >= n) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `separateItemIndex=${g.separateItemIndex} 超出 intents 范围 [0, ${n - 1}]`
+          message: `separateIntentItemIndex=${t.separateIntentItemIndex} 超出 intents 范围 [0, ${n - 1}]`
         });
       }
-      if (seen.has(g.separateItemIndex)) {
+      if (seen.has(t.separateIntentItemIndex)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `重复的 separateItemIndex=${g.separateItemIndex}`
+          message: `重复的 separateIntentItemIndex=${t.separateIntentItemIndex}`
         });
       }
-      seen.add(g.separateItemIndex);
+      seen.add(t.separateIntentItemIndex);
     }
     for (let i = 0; i < n; i++) {
       if (!seen.has(i)) {
@@ -111,51 +105,6 @@ export const PlanSchema = z
     }
   });
 
-export type PlanSkillStep = z.infer<typeof PlanSkillStepSchema>;
-export type PlanSubTask = z.infer<typeof PlanSubTaskSchema>;
-export type PlanGroup = z.infer<typeof PlanGroupSchema>;
+export type Step = z.infer<typeof StepSchema>;
+export type Task = z.infer<typeof TaskSchema>;
 export type Plan = z.infer<typeof PlanSchema>;
-
-/**
- * 将嵌套 {@link Plan} 展平为与 `IntentResult.planningTasks` 同形的列表（仅结构对齐，不合并 intents）。
- * `taskId` 默认编码为 `p{组索引}-t{组内序号}`，避免跨组碰撞。
- */
-export function flattenPlanToPlanningTasks(plan: Plan): PlanSubTask[] {
-  const out: PlanSubTask[] = [];
-  const sorted = [...plan.groups].sort((a, b) => a.separateItemIndex - b.separateItemIndex);
-  for (let gi = 0; gi < sorted.length; gi++) {
-    const g = sorted[gi]!;
-    g.subTasks.forEach((t, ti) => {
-      const id = t.taskId?.trim() ? t.taskId : `p${g.separateItemIndex}-t${ti}`;
-      out.push({ ...t, taskId: id });
-    });
-  }
-  return out;
-}
-
-/**
- * 由 `intentSeparateResult` 生成占位 {@link Plan}（每组一条占位 subTask，供后续规划 LLM 或程序化逻辑覆盖）。
- */
-export function scaffoldPlanFromIntentSeparate(
-  intentSeparateResult: IntentSeparateResult
-): Plan {
-  const groups: PlanGroup[] = intentSeparateResult.intents.map((intentItem, separateItemIndex) => ({
-    separateItemIndex,
-    intentItem,
-    subTasks: [
-      {
-        taskId: `p${separateItemIndex}-t0`,
-        systemModuleId: intentItem.intent,
-        goal: intentItem.goal ?? intentItem.semanticTaskBrief,
-        resolvedSlots: intentItem.resolvedSlots,
-        executable: undefined,
-        skillSteps: undefined
-      }
-    ]
-  }));
-  return {
-    intentSeparateResult,
-    planVersion: "1",
-    groups
-  };
-}

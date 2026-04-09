@@ -1,6 +1,6 @@
 import z from "zod";
 import type { EnvConfig } from "../config/envConfig.js";
-import { SystemModuleIdSchema } from "./schemas.js";
+import { SystemModuleIdSchema } from "./SystemSchema.js";
 
 export type { IntentResult } from "./intentSchemas.js";
 

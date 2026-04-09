@@ -1,20 +1,38 @@
 import { z } from "zod/v3";
-import {
-  getSystemConfig,
-  businessSegmentZodEnumValues,
-  type SystemConfig
-} from "../config/systemConfig.js";
+import { type SystemConfig } from "../config/systemConfig.js";
+
+const FALLBACK_SYSTEM_CONFIG: SystemConfig = {
+  version: 1,
+  modules: [{ id: "empty" }],
+  domains: [{ id: "empty" }]
+};
+
+function toEnumValues(values: string[], fallback: [string, ...string[]]): [string, ...string[]] {
+  const cleaned = [...new Set(values.map((x) => x.trim()).filter(Boolean))];
+  return cleaned.length > 0 ? (cleaned as [string, ...string[]]) : fallback;
+}
+
+function buildIntentTypeValues(config: SystemConfig): [string, ...string[]] {
+  const moduleIds = (config.modules ?? [])
+    .map((m) => (typeof m.id === "string" ? m.id.trim() : ""))
+    .filter(Boolean);
+  return toEnumValues([...moduleIds, "chitchat", "unknown"], ["unknown"]);
+}
+
+function businessDomainEnumValues(config: SystemConfig): [string, ...string[]] {
+  const business = (config.domains ?? []).filter((d) =>
+    Array.isArray(d.facets) && d.facets.length > 0
+      ? d.facets.includes("business")
+      : d.id !== "common"
+  );
+  return toEnumValues(
+    business.map((d) => d.id),
+    ["empty"]
+  );
+}
 
 /** 通用意图类型枚举（供 intents[].intent 与其它模块复用） */
-export const IntentTypeSchema = z.enum([
-  "data_query",
-  "data_analysis",
-  "knowledge_qa",
-  "chitchat",
-  "unknown"
-]);
-
-
+export const IntentTypeSchema = z.enum(buildIntentTypeValues(FALLBACK_SYSTEM_CONFIG));
 
 export type IntentType = z.infer<typeof IntentTypeSchema>;
 
@@ -41,7 +59,8 @@ export type SelectedSkillKind = z.infer<typeof SelectedSkillKindSchema>;
  * 注：Schema 主要负责结构校验，跨字段语义一致性由调用方与编排逻辑共同保证。
  */
 export function buildIntentResultSchema(config: SystemConfig) {
-  const businessSegmentSchema = z.enum(businessSegmentZodEnumValues(config));
+  const intentTypeSchema = z.enum(buildIntentTypeValues(config));
+  const businessSegmentSchema = z.enum(businessDomainEnumValues(config));
   const outputTypeSchema = z.string();
   const followUpActionSchema = z.object({
     type: z.enum(["write_artifact", "reply_channel", "invoke_agent", "none"]),
@@ -104,7 +123,7 @@ export function buildIntentResultSchema(config: SystemConfig) {
            * 通用上下文字段（如 `domainId` / `segmentId` / `targetEntryId` / `resolvedSlots`）
            * 可按需要在任意子意图上提供。
            */
-          intent: IntentTypeSchema,
+          intent: intentTypeSchema,
           /** 该子意图的自然语言目标，便于日志与 planningTasks 对齐 */
           goal: z.string().optional(),
           /**
@@ -190,6 +209,8 @@ export function buildIntentResultSchema(config: SystemConfig) {
   });
 }
 
+let cachedModulechema: ReturnType<typeof buildIntentResultSchema> | undefined;
+
 let cachedIntentResultSchema: ReturnType<typeof buildIntentResultSchema> | undefined;
 
 /**
@@ -198,14 +219,14 @@ let cachedIntentResultSchema: ReturnType<typeof buildIntentResultSchema> | undef
  */
 export function getIntentResultSchema() {
   if (!cachedIntentResultSchema) {
-    cachedIntentResultSchema = buildIntentResultSchema(getSystemConfig());
+    cachedIntentResultSchema = buildIntentResultSchema(FALLBACK_SYSTEM_CONFIG);
   }
   return cachedIntentResultSchema;
 }
 
 /** `initSystemConfig` 之后调用，使枚举与 `system.yaml` 的 segments 一致 */
-export function refreshIntentResultSchemaCache(): void {
-  cachedIntentResultSchema = buildIntentResultSchema(getSystemConfig());
+export function refreshIntentResultSchemaCache(config: SystemConfig): void {
+  cachedIntentResultSchema = buildIntentResultSchema(config);
 }
 
 /** 单测或热替换配置后清空缓存，下次 `getIntentResultSchema` 再按当前 `getSystemConfig()` 构建 */

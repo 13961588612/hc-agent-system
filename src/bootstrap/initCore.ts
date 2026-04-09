@@ -3,7 +3,6 @@ import { loadEnvConfig, type EnvConfig } from "../config/envConfig.js";
 import { loadDatabasesConfig } from "../config/databasesConfig.js";
 import {
   getSystemConfig,
-  initSystemConfig,
   loadSystemConfigFromFile
 } from "../config/systemConfig.js";
 import { refreshIntentResultSchemaCache } from "../contracts/intentSchemas.js";
@@ -29,14 +28,13 @@ export async function initCore(): Promise<InitCoreResult> {
       (rt.gitRootDir ? ` gitRootDir=${rt.gitRootDir}` : "")
   );
 
-  const systemLoaded = await loadSystemConfigFromFile();
-  initSystemConfig(systemLoaded);
-  refreshIntentResultSchemaCache();
-  const sys = getSystemConfig();
+  await loadSystemConfigFromFile();
+  refreshIntentResultSchemaCache(await getSystemConfig());
+  const sys = await getSystemConfig();
   console.log(
-    `[System] 域/分段已加载: domains=${sys.domains.length} segments=${sys.segments.length} (version=${sys.version ?? "—"})`
+    `[System] 模块/域已加载: modules=${sys.modules.length} domains=${sys.domains.length} (version=${sys.version ?? "—"})`
   );
-  if (sys.domains.length === 0 && sys.segments.length === 0) {
+  if (sys.modules.length === 0 && sys.domains.length === 0) {
     console.warn(
       "[System] 当前无有效 system 配置（请放置 config/system.yaml 或设置 SYSTEM_CONFIG 指向有效文件）"
     );

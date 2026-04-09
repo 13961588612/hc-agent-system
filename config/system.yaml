@@ -2,51 +2,44 @@
 # 复制为 `system.yaml` 并按部署裁剪；或通过环境变量 `SYSTEM_CONFIG` 指向绝对/相对路径。
 #
 # 说明：
-# - domains：逻辑域清单（可与 Skill 顶层域、业务线名对齐）。
-# - segments：域内业务分段（可与 SkillSegment、DataQuery 域等对齐）。
-# - facets：该条目录参与的**分类维度**，可多选：
-#   - business — 业务域，如会员、电商、财务等
-#   - common — 核心通用能力，如 sql-query、invoke-skill 等底层能力
-#   - functional — 功能域，如 sql-query、invoke-skill 等底层能力
+# - module：系统模块清单（用于意图规划阶段的 systemModuleId）。
+# - domains：业务分段清单（用于意图与技能分段，如 member/ecommerce/finance）。
 
 version: 1
 
-domains:
+module:
   - id: data_query
     title: 数据查询
     description: 问数/数据查询模块;
-    facets: [system-module,skills]
   - id: data_analysis
     title: 数据分析
     description: 业务分析/数据分析模块;
-    facets: [system-module,skills]
   - id: smart_form
     title: 智能表单
     description: 智能表单模块;
-    facets: [system-module,skills]
+
+domains:
+  - id: member
+    title: 会员线;会员资料/会员积分账户/会员券账户/会员储值卡、礼卡账户/会员订单/停车订单/评价记录
+    description: 会员线;会员资料/会员积分账户/会员券账户/会员储值卡、礼卡账户/会员订单/停车订单/评价记录
+    facets: [business]
+  - id: ecommerce
+    title: 电商线;电商订单/商品/销售/物流/售后
+    description: 电商线;电商订单/商品/销售/物流/售后
+    facets: [business]
+  - id: finance
+    title: 财务线
+    description: 财务线;财务账单/财务报表/财务分析
+    facets: [business]
   - id: intent
     title: 意图
     description: 意图识别/意图分类模块;
-    facets: [skills]
-  - id: common
-    title: 核心通用能力
-    description: 核心通用能力域；如 sql-query、invoke-skill 等底层能力
-    facets: [skills]
-
-segments:
-  - id: member
-    title: 会员线;会员资料/会员积分账户/会员券账户/会员储值卡、礼卡账户/会员订单/停车订单/评价记录
-    facets: [business,skills]
-  - id: ecommerce
-    title: 电商线;电商订单/商品/销售/物流/售后
-    facets: [business,skills]
-  - id: finance
-    title: 财务线
-    facets: [business,skills]    
+    facets: [intent]
   - id: common
     title: 通用能力
-    facets: [skills]
-
+    description: 通用能力域；如 sql-query、invoke-skill 等底层能力
+    facets: [functional]
+    
 # 渠道回复展示配置
 channelReply:
   table:

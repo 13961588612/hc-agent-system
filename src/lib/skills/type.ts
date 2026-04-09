@@ -1,6 +1,5 @@
 import z from "zod";
 import type { EnvConfig } from "../../config/envConfig.js";
-import { SystemDomainEntry, SystemSegmentEntry } from "../../config/systemConfig.js";
 import { SkillGuideEntry } from "../guides/index.js";
 import type { DbClient } from "../infra/dbClient.js";
 import type { DbClientManager } from "../infra/dbClientManager.js";
