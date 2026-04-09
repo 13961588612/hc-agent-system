@@ -15,7 +15,10 @@ export function getModel(): BaseChatModel {
     const model = env.dashscopeModel ?? DEFAULT_DASHSCOPE_MODEL;
     const llm = new ChatOpenAI(model, {
       apiKey: env.dashscopeApiKey,
-      configuration: { baseURL: env.dashscopeApiBase }
+      configuration: { baseURL: env.dashscopeApiBase },
+      modelKwargs: {
+        enable_thinking: dashScopeEnableThinkingFromEnv()
+      }
     } as object);
     return llm as unknown as BaseChatModel;
   }
@@ -23,4 +26,10 @@ export function getModel(): BaseChatModel {
   throw new Error(
     "未配置可用模型：请设置 DASHSCOPE_API_KEY 或 OPENAI_API_KEY"
   );
+}
+
+
+function dashScopeEnableThinkingFromEnv(): boolean {
+  const v = process.env.DASHSCOPE_ENABLE_THINKING?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
 }
