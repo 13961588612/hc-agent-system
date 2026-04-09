@@ -3,11 +3,11 @@ import {
   type DbClient,
   type SqlQueryResult
 } from "../../infra/dbClient.js";
-import { dbClientManager } from "../../infra/dbClientManager.js";
+import { dbClientManager, getDefaultDbClientManager } from "../../infra/dbClientManager.js";
 import { z } from "zod";
 
 function resolveDbClient(dbClientKey: string): DbClient {
-  const fromManager = dbClientManager.tryGet(dbClientKey);
+  const fromManager = getDefaultDbClientManager().tryGet(dbClientKey);
   if (fromManager) return fromManager;
   return new DummyDbClient();
 }

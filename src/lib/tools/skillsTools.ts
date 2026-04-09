@@ -3,8 +3,8 @@ import { getSkillDetailById, listSkillsByDomainSegment } from "../skills/catalog
 import type { SkillOrGuideDetail } from "../skills/type.js";
 
 const listSkillsInputSchema = z.object({
-  domainId: z.string().describe("技能顶层域，如 data_analysis/data_query/common"),
-  segmentId: z.string().describe("业务分段，如 member/ecommerce/finance/other")
+  domainId: z.string().describe("技能顶层域"),
+  segmentId: z.string().describe("业务分段")
 });
 
 const invokeSkillInputSchema = z.object({

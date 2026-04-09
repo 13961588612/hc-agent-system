@@ -17,11 +17,10 @@ tags:
 ### 1) 总体执行顺序
 
 1. 输入归并：整合用户问题、上下文和可用 guide/skill 线索。  
-2. 意图识别：输出 `intents[]`，标注 `goal/confidence/executable/missingSlots`。  
-3. 上下文锚点：补齐 `domainId/segmentId`，并在 step 里给出 `selectedSkillId` 与 `selectedSkillKind`。  
-4. 任务规划：输出 `planningTasks[]` 和 `skillSteps[]`，明确参数状态与先后依赖。  
-5. 执行门闸：根据缺参决定 `planPhase` 与 `needsClarification`。  
-6. 回答控制：补齐 `replyLocale/clarificationQuestion/replySuggestion`。  
+2. 意图识别：输出 `intents[]`，对每个子意图 标注 `goal/confidence/executable/missingSlots/domainId/segmentId`。   
+3. 任务规划：输出 `planningTasks[]` 和 `skillSteps[]`，明确参数状态与先后依赖。  
+4. 执行门闸：根据缺参决定 `planPhase` 与 `needsClarification`。  
+5. 回答控制：补齐 `replyLocale/clarificationQuestion/replySuggestion`。  
 
 ### 2) 字段级约束（无 capability 口径）
 
