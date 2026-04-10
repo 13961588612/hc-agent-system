@@ -234,6 +234,11 @@ export async function listModules(): Promise<SystemModuleEntry[]> {
   return config.modules;
 }
 
+export async function listDomains(): Promise<SystemDomainEntry[]> {
+  const config = await getSystemConfig();
+  return config.domains;
+}
+
 export async function listBusinessDomains(): Promise<SystemDomainEntry[]> {
   const config = await getSystemConfig();
   if(!config) return [];

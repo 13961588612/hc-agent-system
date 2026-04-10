@@ -1,9 +1,10 @@
 import {
   getSystemConfig,
-  listBusinessSegments,
-  listSkillsDomains,
-  listSkillsSegments,
-  listSystemModuleDomains
+  listBusinessDomains,
+  listDomains,
+  listModules,
+  type SystemDomainEntry,
+  type SystemModuleEntry
 } from "../../config/systemConfig.js";
 import { getIntentSeparateOutputParser } from "../separate/intentSeparateOutputParser.js";
 
@@ -31,62 +32,103 @@ function buildIntentSeparateRulesInline(): string {
 }
 
 /** 从 system.yaml 注入到意图识别提示词中的系统摘要（只读配置，不写死业务） */
-let systemContext: string | undefined;
+let intentPromptSystemContextCache: string | undefined;
 
-function getSystemContextForIntentPrompt(): string {
-  if (!systemContext) 
-    systemContext = formatSystemContextForIntentPrompt();
-  return systemContext;
+/** 热替换 system 配置或单测时可清空，使下次重新拉取 */
+export function resetIntentPromptSystemContextCache(): void {
+  intentPromptSystemContextCache = undefined;
 }
 
+function formatModuleLine(m: SystemModuleEntry): string {
+  const parts: string[] = [];
+  if (m.title) parts.push(`标题：${m.title}`);
+  if (m.description) parts.push(`说明：${m.description}`);
+  const tail = parts.length ? ` | ${parts.join(" | ")}` : "";
+  return `  - systemModuleId="${m.id}"${tail}`;
+}
 
-function formatSystemContextForIntentPrompt(): string {
-  const cfg = getSystemConfig();
+function formatBusinessSegmentLine(d: SystemDomainEntry): string {
+  const parts: string[] = [];
+  if (d.title) parts.push(`标题：${d.title}`);
+  if (d.description) parts.push(d.description);
+  const tail = parts.length ? ` | ${parts.join(" | ")}` : "";
+  return `  - segmentId="${d.id}"${tail}`;
+}
+
+function formatOtherDomainLine(d: SystemDomainEntry): string {
+  const facetStr =
+    d.facets && d.facets.length > 0 ? ` facets=[${d.facets.join(", ")}]` : "";
+  const parts: string[] = [];
+  if (d.title) parts.push(d.title);
+  if (d.description) parts.push(d.description);
+  const meta = parts.length ? ` | ${parts.join(" | ")}` : "";
+  return `  - domainId="${d.id}"${facetStr}${meta}`;
+}
+
+/**
+ * 将当前 `system.yaml` 摘要注入意图提示词：
+ * - module → systemModuleId
+ * - domains（facets 含 business）→ segmentId
+ * - 其余 domains → domainId / facets 参考
+ * - skills 相关：显式列出 facets 含 skills 的域，否则给工具参数约定说明
+ */
+async function formatSystemContextForIntentPrompt(): Promise<string> {
+  const cfg = await getSystemConfig();
   const ver =
     typeof cfg.version === "number" && Number.isFinite(cfg.version)
       ? String(cfg.version)
       : "—";
 
-  const modules = listSystemModuleDomains(cfg);
-  const moduleBlock = modules.length
-    ? modules
-        .map(
-          (m) =>
-            `  - systemModuleId="${m.id}"${m.title ? ` 标题：${m.title}` : ""}${m.description ? ` | 说明：${m.description}` : ""}`
-        )
-        .join("\n")
-    : "  - （当前配置未声明 system-module 域，planningTasks[].systemModuleId 仍须与 intents 语义一致，可用 data_query / data_analysis / knowledge_qa 等稳定 id）";
+  const modules = await listModules();
+  const moduleBlock =
+    modules.length > 0
+      ? modules.map(formatModuleLine).join("\n")
+      : `  - （未配置 module：systemModuleId 须与 intents 语义一致，可用 data_query / data_analysis / knowledge_qa 等稳定 id）`;
 
-  const business = listBusinessSegments(cfg);
-  const businessBlock = business.length
-    ? business
-        .map(
-          (s) =>
-            `  - segmentId="${s.id}"${s.title ? ` 标题：${s.title}` : ""}${s.description ? ` | ${s.description}` : ""}`
-        )
-        .join("\n")
-    : "  - （无 business 分段，segmentId 可用 other 或与技能披露一致）";
+  const business = await listBusinessDomains();
+  const businessBlock =
+    business.length > 0
+      ? business.map(formatBusinessSegmentLine).join("\n")
+      : `  - （无 facets 含 business 的域：segmentId 可用 other 或与 list_skills 披露一致）`;
 
-  const skillDomains = listSkillsDomains(cfg);
-  const skillDomBlock = skillDomains.length
-    ? skillDomains.map((d) => `  - skillsDomainId="${d.id}"${d.title ? `（${d.title}）` : ""}`).join("\n")
-    : "  - （无 skills 域配置）";
+  const allDomains = await listDomains();
+  const businessIds = new Set(business.map((b) => b.id));
+  const otherDomains = allDomains.filter((d) => !businessIds.has(d.id));
+  const otherBlock =
+    otherDomains.length > 0
+      ? `\n- 其它 domains（含 facets，可作 domainId 或非业务分段参考）：\n${otherDomains.map(formatOtherDomainLine).join("\n")}`
+      : "";
 
-  const skillSegs = listSkillsSegments(cfg);
-  const skillSegBlock = skillSegs.length
-    ? skillSegs.map((s) => `  - skillsSegmentId="${s.id}"${s.title ? `（${s.title}）` : ""}`).join("\n")
-    : "  - （无 skills 分段配置）";
+  const skillsFacetDomains = allDomains.filter((d) =>
+    (d.facets ?? []).includes("skills")
+  );
+  const skillsBlock =
+    skillsFacetDomains.length > 0
+      ? `\n- 技能披露 skillsDomainId（facets 含 skills）：\n${skillsFacetDomains
+          .map(
+            (d) =>
+              `  - skillsDomainId="${d.id}"${d.title ? ` | ${d.title}` : ""}`
+          )
+          .join("\n")}\n- skillsSegmentId 宜与上列 segmentId / domainId 对齐。`
+      : `\n- 技能披露约定：list_skills_by_domain_segment 的 domain 常为 data_query；skillsSegmentId 与业务 segmentId 一致（如 member、ecommerce）。`;
 
-  return `【当前系统信息】（来自 config/system.yaml，用于选对 domain/segment）
+  return `【当前系统信息】（来自 config/system.yaml）
 - 配置 version：${ver}
-- 系统域（domains）：
+- 系统模块（systemModuleId）
 ${moduleBlock}
-- 业务域（segments）：
-${businessBlock}`;
+- 业务分段（segmentId，domains 且 facets 含 business）
+${businessBlock}${otherBlock}${skillsBlock}`;
 }
 
-export function buildIntentSeparateInstruction(): string {
-  const systemContext = getSystemContextForIntentPrompt();
+async function getSystemContextForIntentPrompt(): Promise<string> {
+  if (intentPromptSystemContextCache === undefined) {
+    intentPromptSystemContextCache = await formatSystemContextForIntentPrompt();
+  }
+  return intentPromptSystemContextCache;
+}
+
+export async function buildIntentSeparateInstruction(): Promise<string> {
+  const systemContext = await getSystemContextForIntentPrompt();
   const intentSeparateRules = buildIntentSeparateRulesInline();
   const formatInstructions = getIntentSeparateOutputParser().getFormatInstructions();
 
@@ -114,8 +156,8 @@ export function buildIntentTaskStepsRulesInline(): string {
 - 不要执行真实 SQL、不要访问外部数据。`;
 }
 
-export function buildIntentTaskStepsInstruction(): string {
-  const systemContext = formatSystemContextForIntentPrompt();
+export async function buildIntentTaskStepsInstruction(): Promise<string> {
+  const systemContext = await getSystemContextForIntentPrompt();
   const intentTaskStepsRules = buildIntentTaskStepsRulesInline();
 
   return `你是客服场景的多意图识别与任务拆解器。

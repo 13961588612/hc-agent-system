@@ -12,7 +12,7 @@ import {
 import { getIntentSeparateOutputParser } from "./intentSeparateOutputParser.js";
 import { buildIntentSeparateInstruction } from "../common/intentPromptUtils.js";
 import { allTools } from "../../lib/tools/tools.js";
-import { getModel } from "../../model/index.js";
+import { getModelNoThinking } from "../../model/index.js";
 import { emitProgressByConfig } from "../../graph/orchestrator/progressReporter.js";
 
 /** LLM 原始消息（仅在使用「手动 tool 循环」解析路径时需要） */
@@ -41,7 +41,7 @@ export function buildIntentLlmUserContent(state: OrchestratorState): string {
 export async function runIntentSeparateLlm(
   userContent: string
 ): Promise<IntentSeparateResult> {
-  const instruction = buildIntentSeparateInstruction();
+  const instruction = await buildIntentSeparateInstruction();
   const tLlm = Date.now();
   const timeoutMs = getIntentLlmTimeoutMs();
   log("[Intent]", "getModel + LLM invoke 开始", `timeoutMs=${timeoutMs}`);
@@ -50,7 +50,7 @@ export async function runIntentSeparateLlm(
     allTools.list_skills_by_domain_segment,
     allTools.invoke_skill
   ];
-  const base = getModel(false,true) as unknown as {
+  const base = getModelNoThinking(true) as unknown as {
     bindTools: (
       t: unknown[],
       kwargs?: { strict?: boolean }

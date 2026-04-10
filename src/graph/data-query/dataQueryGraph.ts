@@ -6,11 +6,11 @@ import { runInvokeSkillTool } from "../../lib/tools/skillsTools.js";
 import type { SqlSkillInput } from "../../lib/skills/core/sqlQuerySkill.js";
 import type { DataQueryInput, DataQueryResult, QueryDomain } from "../../contracts/types.js";
 import { DataQueryState, DataQueryStateSchema } from "../../contracts/schemas.js";
-import { getSystemConfig, listQuerySegmentIds } from "../../config/systemConfig.js";
 import type { Runnable } from "@langchain/core/runnables";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getModel } from "../../model/index.js";
 import { log } from "../../lib/log/log.js";
+import { listDomains } from "../../config/systemConfig.js";
 
 /** 单任务内 LLM 注入 SQL 条数上限 */
 const MAX_SQL_QUERIES = 10;
@@ -286,9 +286,9 @@ builder.addNode("domain_router", (state: DataQueryState) => {
       queryIntent: state.input.targetIntent.trim()
     };
   }
-
+  
   const text = state.input.userInput;
-  const segments = listQuerySegmentIds(getSystemConfig());
+  const segments = listDomains().map(d => d.id);
   let queryDomain: QueryDomain = fallbackQueryDomainFromConfig();
   let queryIntent = "unknown";
 

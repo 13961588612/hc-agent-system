@@ -5,7 +5,7 @@ import type { SkillGuideEntry } from "../../lib/guides/types.js";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getIntentLlmTimeoutMs } from "../../config/intentPolicy.js";
 import { log } from "../../lib/log/log.js";
-import { getModel } from "../../model/index.js";
+import { getModel, getModelNoThinking } from "../../model/index.js";
 import {
   ClarificationToneResultSchema,
   getClarificationToneOutputParser
@@ -328,7 +328,7 @@ async function applyLlmHumorousPlanning(
   log("[Intent]", "澄清文案 LLM（StructuredOutput）", `开始 timeoutMs=${timeoutMs}`);
   const t0 = Date.now();
   try {
-    const base = getModel(false, true) as unknown as {
+    const base = getModelNoThinking(true) as unknown as {
       withStructuredOutput: (
         p: ReturnType<typeof getClarificationToneOutputParser>
       ) => { invoke: (input: unknown) => Promise<unknown> };
