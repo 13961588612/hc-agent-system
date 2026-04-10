@@ -286,7 +286,7 @@ builder.addNode("domain_router", (state: DataQueryState) => {
       queryIntent: state.input.targetIntent.trim()
     };
   }
-  
+
   const text = state.input.userInput;
   const segments = listDomains().map(d => d.id);
   let queryDomain: QueryDomain = fallbackQueryDomainFromConfig();
