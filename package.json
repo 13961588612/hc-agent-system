@@ -11,6 +11,7 @@
     "dev:wecom:debug-brk": "cross-env CHANNEL_MODE=wecom node --inspect-brk --import tsx src/index.ts",
     "dev:member-profile": "tsx src/dev/runMemberProfileQueryDemo.ts",
     "dev:intent-multi": "tsx src/dev/runIntentMultiTurnDemo.ts",
+    "dev:chat": "tsx src/dev/runCliChat.ts",
     "dev:wecom": "cross-env CHANNEL_MODE=wecom tsx src/index.ts",
     "dev:wecom-http": "cross-env CHANNEL_MODE=wecom-http tsx src/index.ts",
     "build": "tsc -p tsconfig.json",

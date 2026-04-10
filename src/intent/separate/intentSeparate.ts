@@ -12,7 +12,7 @@ import {
 import { getIntentSeparateOutputParser } from "./intentSeparateOutputParser.js";
 import { buildIntentSeparateInstruction } from "../common/intentPromptUtils.js";
 import { allTools } from "../../lib/tools/tools.js";
-import { getModelNoThinking } from "../../model/index.js";
+import { getModelNoThinking,getModel } from "../../model/index.js";
 import { emitProgressByConfig } from "../../graph/orchestrator/progressReporter.js";
 
 /** LLM 原始消息（仅在使用「手动 tool 循环」解析路径时需要） */

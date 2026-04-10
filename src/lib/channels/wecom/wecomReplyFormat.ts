@@ -1,4 +1,4 @@
-import { getSystemConfig } from "../../../config/systemConfig.js";
+import { getChannelReplyConfig } from "../../../config/channelReplyConfig.js";
 
 function escapeCell(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -10,7 +10,7 @@ function getTableRenderConfig(): {
   maxColumns: number;
   headerZhMap: Record<string, string>;
 } {
-  const tableCfg = getSystemConfig().channelReply?.table;
+  const tableCfg = getChannelReplyConfig().table;
   const maxRows =
     typeof tableCfg?.maxRows === "number" && Number.isFinite(tableCfg.maxRows)
       ? Math.max(1, Math.floor(tableCfg.maxRows))

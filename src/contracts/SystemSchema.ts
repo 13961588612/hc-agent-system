@@ -1,57 +1,75 @@
 import { z } from "zod/v3";
-import { getSystemConfig } from "../config/systemConfig.js";
+import { type SystemConfig } from "../config/systemConfig.js";
+
+const FALLBACK_CONFIG: SystemConfig = {
+  version: 1,
+  modules: [{ id: "other" }],
+  domains: [{ id: "other" }]
+};
 
 function toEnumValues(values: string[], fallback: [string, ...string[]]): [string, ...string[]] {
   const cleaned = [...new Set(values.map((x) => x.trim()).filter(Boolean))];
   return cleaned.length > 0 ? (cleaned as [string, ...string[]]) : fallback;
 }
 
-const systemConfig = getSystemConfig();
+export function buildSystemSchemas(config: SystemConfig) {
+  const moduleIdValues = toEnumValues(
+    (config.modules ?? []).map((m) => m.id),
+    ["query"]
+  );
+  const domainIdValues = toEnumValues(
+    (config.domains ?? []).map((d) => d.id),
+    ["other"]
+  );
+  const facetValues = toEnumValues(
+    (config.domains ?? []).flatMap((d) => d.facets ?? []),
+    ["business", "skills"]
+  );
 
-export const ModuleIdSchema = z.enum(
-  toEnumValues(
-    (await systemConfig).modules.map((m) => m.id),
-    ["empty"]
-  )
-);
+  const ModuleIdSchema = z.enum(moduleIdValues);
+  const DomainIdSchema = z.enum(domainIdValues);
+  const FacetSchema = z.enum(facetValues);
+  const ModuleEntrySchema = z.object({
+    id: ModuleIdSchema,
+    title: z.string().optional(),
+    description: z.string().optional()
+  });
+  const DomainEntrySchema = z.object({
+    id: DomainIdSchema,
+    title: z.string().optional(),
+    description: z.string().optional(),
+    facets: z.array(FacetSchema).optional()
+  });
+  const SystemConfigSchema = z.object({
+    version: z.number().optional(),
+    module: z.array(ModuleEntrySchema).optional(),
+    domains: z.array(DomainEntrySchema).optional()
+  });
 
-/** 业务域 id（如 member / ecommerce / finance） */
-export const DomainIdSchema = z.enum(
-  toEnumValues(
-    (await systemConfig).domains.map((d) => d.id),
-    ["empty"]
-  )
-);
+  return {
+    ModuleIdSchema,
+    DomainIdSchema,
+    FacetSchema,
+    ModuleEntrySchema,
+    DomainEntrySchema,
+    SystemConfigSchema
+  };
+}
 
-/** domain 可用 facet（来自 domains[].facets 去重汇总） */
-export const FacetSchema = z.enum(
-  toEnumValues(
-    (await systemConfig).domains.flatMap((d) => d.facets ?? []),
-    ["empty"]
-  )
-);
+let cached = buildSystemSchemas(FALLBACK_CONFIG);
 
-/** system.yaml 的 module 条目 */
-export const SystemModuleEntrySchema = z.object({
-  id: ModuleIdSchema,
-  title: z.string().optional(),
-  description: z.string().optional()
-});
+export function refreshSystemSchemaCache(config: SystemConfig): void {
+  cached = buildSystemSchemas(config);
+}
 
-/** system.yaml 的 domain 条目 */
-export const SystemDomainEntrySchema = z.object({
-  id: DomainIdSchema,
-  title: z.string().optional(),
-  description: z.string().optional(),
-  facets: z.array(FacetSchema).optional()
-});
+export function getSystemSchemas() {
+  return cached;
+}
 
-/** system 配置结构 */
-export const SystemConfigSchema = z.object({
-  version: z.number().optional(),
-  module: z.array(SystemModuleEntrySchema).optional(),
-  domains: z.array(SystemDomainEntrySchema).optional()
-});
+export const getModuleIdSchema = () => cached.ModuleIdSchema;
+export const getDomainIdSchema = () => cached.DomainIdSchema;
+export const getFacetSchema = () => cached.FacetSchema;
+export const getModuleEntrySchema = () => cached.ModuleEntrySchema;
+export const getDomainEntrySchema = () => cached.DomainEntrySchema;
+export const getSystemConfigSchema = () => cached.SystemConfigSchema;
 
-/** 兼容旧名，逐步收敛到 ModuleIdSchema */
-export const SystemModuleIdSchema = ModuleIdSchema;

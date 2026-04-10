@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
-export interface SystemModuleEntry {
+export interface ModuleEntry {
   /** 唯一 id，可与 systemModuleId 对齐 */
   id: string;
   /** 展示用短标题 */
@@ -11,7 +11,7 @@ export interface SystemModuleEntry {
   description?: string;
 }
 
-export interface SystemDomainEntry {
+export interface DomainEntry {
   /** 唯一 id，可与 SkillSegment、QueryDomain 对齐 */
   id: string;
   title?: string;
@@ -23,19 +23,8 @@ export interface SystemDomainEntry {
 export interface SystemConfig {
   /** 配置格式版本，便于迁移 */
   version?: number;
-  modules: SystemModuleEntry[];
-  domains: SystemDomainEntry[];
-  /** 渠道回复展示相关配置 */
-  channelReply?: {
-    table?: {
-      /** 表格最多展示行数 */
-      maxRows?: number;
-      /** 表格最多展示列数 */
-      maxColumns?: number;
-      /** 表头中文别名映射：key=原字段名，value=中文名 */
-      headerZhMap?: Record<string, string>;
-    };
-  };
+  modules: ModuleEntry[];
+  domains: DomainEntry[];
 }
 
 let singleton: SystemConfig;
@@ -44,7 +33,7 @@ let initialized: boolean = false;
 function normalizeModule(
   raw: unknown,
   index: number
-): SystemModuleEntry | null {
+): ModuleEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === "string" ? o.id.trim() : "";
@@ -59,7 +48,7 @@ function normalizeModule(
   };
 }
 
-function normalizeDomain(raw: unknown, index: number): SystemDomainEntry | null {
+function normalizeDomain(raw: unknown, index: number): DomainEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === "string" ? o.id.trim() : "";
@@ -82,21 +71,9 @@ function normalizeDomain(raw: unknown, index: number): SystemDomainEntry | null 
  * 已冻结，请勿就地修改；问数域枚举见 {@link listQuerySegmentIds}（空 domains 时仍为 `["other"]`）。
  */
 const EMPTY_SYSTEM_CONFIG = Object.freeze({
-  modules: Object.freeze([] as SystemModuleEntry[]),
-  domains: Object.freeze([] as SystemDomainEntry[]),
-  channelReply: Object.freeze({
-    table: Object.freeze({
-      maxRows: 20,
-      maxColumns: 8
-    })
-  })
+  modules: Object.freeze([] as ModuleEntry[]),
+  domains: Object.freeze([] as DomainEntry[])
 }) as unknown as SystemConfig;
-
-function normalizePositiveInt(v: unknown): number | undefined {
-  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
-  const n = Math.floor(v);
-  return n > 0 ? n : undefined;
-}
 
 function parseRoot(parsed: unknown): SystemConfig | null {
   if (!parsed || typeof parsed !== "object") return null;
@@ -115,7 +92,7 @@ function parseRoot(parsed: unknown): SystemConfig | null {
       : undefined;
   const domainsRaw = Array.isArray(root.domains) ? root.domains : root.segments;
 
-  const modules: SystemModuleEntry[] = [];
+  const modules: ModuleEntry[] = [];
   if (Array.isArray(modulesRaw)) {
     modulesRaw.forEach((row, i) => {
       const d = normalizeModule(row, i);
@@ -123,7 +100,7 @@ function parseRoot(parsed: unknown): SystemConfig | null {
     });
   }
 
-  const domains: SystemDomainEntry[] = [];
+  const domains: DomainEntry[] = [];
   if (Array.isArray(domainsRaw)) {
     domainsRaw.forEach((row, i) => {
       const d = normalizeDomain(row, i);
@@ -131,38 +108,10 @@ function parseRoot(parsed: unknown): SystemConfig | null {
     });
   }
 
-  const replyRaw =
-    root.channelReply && typeof root.channelReply === "object"
-      ? (root.channelReply as Record<string, unknown>)
-      : undefined;
-  const tableRaw =
-    replyRaw?.table && typeof replyRaw.table === "object"
-      ? (replyRaw.table as Record<string, unknown>)
-      : undefined;
-  const maxRows = normalizePositiveInt(tableRaw?.maxRows);
-  const maxColumns = normalizePositiveInt(tableRaw?.maxColumns);
-  const headerZhMap: Record<string, string> = {};
-  if (tableRaw?.headerZhMap && typeof tableRaw.headerZhMap === "object") {
-    const rawMap = tableRaw.headerZhMap as Record<string, unknown>;
-    for (const [k, v] of Object.entries(rawMap)) {
-      const key = k.trim();
-      const val = typeof v === "string" ? v.trim() : "";
-      if (!key || !val) continue;
-      headerZhMap[key] = val;
-    }
-  }
-
   return {
     version,
     modules,
-    domains,
-    channelReply: {
-      table: {
-        maxRows,
-        maxColumns,
-        headerZhMap
-      }
-    }
+    domains
   };
 }
 
@@ -219,27 +168,27 @@ export function resetSystemConfigForTests(): void {
   initialized = false;
 }
 
-export async function getModuleEntry(id: string): Promise<SystemModuleEntry | null> {
+export async function getModuleEntry(id: string): Promise<ModuleEntry | null> {
   const config = await getSystemConfig();
   return config.modules.find((m) => m.id === id) ?? null;
 }
 
-export async function getDomainEntry(id: string): Promise<SystemDomainEntry | null> {
+export async function getDomainEntry(id: string): Promise<DomainEntry | null> {
   const config = await getSystemConfig();
   return config.domains.find((d) => d.id === id) ?? null;
 }
 
-export async function listModules(): Promise<SystemModuleEntry[]> {
+export async function listModules(): Promise<ModuleEntry[]> {
   const config = await getSystemConfig();
   return config.modules;
 }
 
-export async function listDomains(): Promise<SystemDomainEntry[]> {
+export async function listDomains(): Promise<DomainEntry[]> {
   const config = await getSystemConfig();
   return config.domains;
 }
 
-export async function listBusinessDomains(): Promise<SystemDomainEntry[]> {
+export async function listBusinessDomains(): Promise<DomainEntry[]> {
   const config = await getSystemConfig();
   if(!config) return [];
   return config.domains.filter((d) =>

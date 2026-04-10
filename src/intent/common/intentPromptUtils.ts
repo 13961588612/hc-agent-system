@@ -3,8 +3,8 @@ import {
   listBusinessDomains,
   listDomains,
   listModules,
-  type SystemDomainEntry,
-  type SystemModuleEntry
+  type DomainEntry,
+  type ModuleEntry
 } from "../../config/systemConfig.js";
 import { getIntentSeparateOutputParser } from "../separate/intentSeparateOutputParser.js";
 
@@ -17,17 +17,17 @@ export const INTENT_COMMON_GUIDE_ID = "intent-planning-decompose-and-orchestrate
 /** 第一阶段意图识别：规则内联在代码中，与 IntentSeparateResultSchema 一致 */
 function buildIntentSeparateRulesInline(): string {
   return `【第一阶段：轻量意图识别（仅下列 JSON 字段）】
-- 根据系统 domain、segment 配置拆分任务。
+- 根据系统 module domain 配置拆分任务。
 - 输出唯一一个 JSON 对象，不要附加说明文字。
 - intents[]：至少 1 条；每条**必须**含 semanticTaskBrief、intent；intent 取值须为：data_query | data_analysis | knowledge_qa | chitchat | unknown（与代码校验一致）。
 - semanticTaskBrief：不含手机号/会员号/订单号等具体值的「语义完备的任务描述」，说明要有哪些条件、做哪类事、涉及哪类业务对象或数据；具体标识一律放 resolvedSlots，勿写入本字段。
-- domainId、segmentId：与该项任务语义对应的域/分段（可选，但与配置列表对齐）。
+- moduleId、domainId：与该项任务语义对应的module/domain（可选，但与配置列表对齐）。
 - 每条可选：goal、confidence、resolvedSlots、replySuggestion。
 - 根级可选：replyLocale（与 schema 枚举一致）、confidence、replySuggestion。
 - 不要输出其他字段。
 - 不要拆分到各个步骤，如果多个步骤组合完成一个任务，应该整合在一个任务里。
-- 一个任务不应跨多个 domain/segment，如果一个任务跨多个 domain/segment，应该拆分为多个任务。
-- 查询技能列表时，同一domainId/segmentId只查询一次，不要重复查询。
+- 一个任务不应跨多个 module/domain，如果一个任务跨多个 module/domain，应该拆分为多个任务。
+- 查询技能列表时，同一moduleId/domainId只查询一次，不要重复查询。
 `;
 }
 
@@ -39,7 +39,7 @@ export function resetIntentPromptSystemContextCache(): void {
   intentPromptSystemContextCache = undefined;
 }
 
-function formatModuleLine(m: SystemModuleEntry): string {
+function formatModuleLine(m: ModuleEntry): string {
   const parts: string[] = [];
   if (m.title) parts.push(`标题：${m.title}`);
   if (m.description) parts.push(`说明：${m.description}`);
@@ -47,7 +47,7 @@ function formatModuleLine(m: SystemModuleEntry): string {
   return `  - systemModuleId="${m.id}"${tail}`;
 }
 
-function formatBusinessSegmentLine(d: SystemDomainEntry): string {
+function formatBusinessSegmentLine(d: DomainEntry): string {
   const parts: string[] = [];
   if (d.title) parts.push(`标题：${d.title}`);
   if (d.description) parts.push(d.description);
@@ -55,7 +55,7 @@ function formatBusinessSegmentLine(d: SystemDomainEntry): string {
   return `  - segmentId="${d.id}"${tail}`;
 }
 
-function formatOtherDomainLine(d: SystemDomainEntry): string {
+function formatOtherDomainLine(d: DomainEntry): string {
   const facetStr =
     d.facets && d.facets.length > 0 ? ` facets=[${d.facets.join(", ")}]` : "";
   const parts: string[] = [];

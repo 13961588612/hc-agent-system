@@ -8,24 +8,24 @@
 version: 1
 
 module:
-  - id: data_query
+  - id: query
     title: 数据查询
     description: 问数/数据查询模块;
-  - id: data_analysis
+  - id: analysis
     title: 数据分析
     description: 业务分析/数据分析模块;
-  - id: smart_form
+  - id: form
     title: 智能表单
     description: 智能表单模块;
 
 domains:
   - id: member
-    title: 会员线;会员资料/会员积分账户/会员券账户/会员储值卡、礼卡账户/会员订单/停车订单/评价记录
-    description: 会员线;会员资料/会员积分账户/会员券账户/会员储值卡、礼卡账户/会员订单/停车订单/评价记录
+    title: 会员业务
+    description: 会员资料/会员账户（积分，券，储值卡，礼卡卡账户）/会员订单/停车记录/评价记录
     facets: [business]
   - id: ecommerce
-    title: 电商线;电商订单/商品/销售/物流/售后
-    description: 电商线;电商订单/商品/销售/物流/售后
+    title: 电商业务
+    description: 电商业务的订单/销售/物流/售后
     facets: [business]
   - id: finance
     title: 财务线
@@ -40,18 +40,3 @@ domains:
     description: 通用能力域；如 sql-query、invoke-skill 等底层能力
     facets: [functional]
     
-# 渠道回复展示配置
-channelReply:
-  table:
-    # 表格最多展示行数（超出会提示已截断）
-    maxRows: 20
-    # 表格最多展示列数（按首行字段顺序截断）
-    maxColumns: 8
-    # 表头中文映射（未命中时使用：列N(原字段名)）
-    headerZhMap:
-      member_code: 会员编码
-      member_name: 会员姓名
-      mobile: 手机号
-      level_name: 会员等级
-      points: 积分
-      created_at: 创建时间

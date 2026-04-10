@@ -5,7 +5,12 @@ import {
   getSystemConfig,
   loadSystemConfigFromFile
 } from "../config/systemConfig.js";
+import {
+  initChannelReplyConfig,
+  loadChannelReplyConfigFromFile
+} from "../config/channelReplyConfig.js";
 import { refreshIntentResultSchemaCache } from "../contracts/intentSchemas.js";
+import { refreshSystemSchemaCache } from "../contracts/SystemSchema.js";
 import { getRuntimeContext } from "../config/runtimeContext.js";
 import { defaultGuidesDir, discoverAndRegisterGuides } from "../lib/guides/scanGuides.js";
 import { discoverAndRegisterIntentRules } from "../intent/rule/scanIntentRules.js";
@@ -29,8 +34,10 @@ export async function initCore(): Promise<InitCoreResult> {
   );
 
   await loadSystemConfigFromFile();
-  refreshIntentResultSchemaCache(await getSystemConfig());
+  initChannelReplyConfig(await loadChannelReplyConfigFromFile());
   const sys = await getSystemConfig();
+  refreshIntentResultSchemaCache(sys);
+  refreshSystemSchemaCache(sys);
   console.log(
     `[System] 模块/域已加载: modules=${sys.modules.length} domains=${sys.domains.length} (version=${sys.version ?? "—"})`
   );

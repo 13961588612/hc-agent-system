@@ -1,17 +1,22 @@
-import { z } from "zod/v3";
-import {
-  DomainIdSchema,
-  FacetSchema,
-  ModuleIdSchema,
-  SystemConfigSchema,
-  SystemDomainEntrySchema,
-  SystemModuleEntrySchema
-} from "./SystemSchema.js";
+export type ModuleId = string;
+export type DomainId = string;
+export type Facet = string;
 
-export type ModuleId = z.infer<typeof ModuleIdSchema>;
-export type DomainId = z.infer<typeof DomainIdSchema>;
-export type Facet = z.infer<typeof FacetSchema>;
+export type SystemModuleEntry = {
+  id: string;
+  title?: string;
+  description?: string;
+};
 
-export type SystemModuleEntry = z.infer<typeof SystemModuleEntrySchema>;
-export type SystemDomainEntry = z.infer<typeof SystemDomainEntrySchema>;
-export type SystemConfigContract = z.infer<typeof SystemConfigSchema>;
+export type SystemDomainEntry = {
+  id: string;
+  title?: string;
+  description?: string;
+};
+
+export type SystemConfigType = {
+  version: number;
+  modules: SystemModuleEntry[];
+  domains: SystemDomainEntry[];
+};
+
