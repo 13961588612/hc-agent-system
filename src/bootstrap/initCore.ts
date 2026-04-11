@@ -11,6 +11,7 @@ import {
 } from "../config/channelReplyConfig.js";
 import { refreshIntentResultSchemaCache } from "../contracts/intentSchemas.js";
 import { refreshSystemSchemaCache } from "../contracts/SystemSchema.js";
+import { refreshIntentSeparateSchemaCache } from "../intent/separate/intentSeparateSchema.js";
 import { getRuntimeContext } from "../config/runtimeContext.js";
 import { defaultGuidesDir, discoverAndRegisterGuides } from "../lib/guides/scanGuides.js";
 import { discoverAndRegisterIntentRules } from "../intent/rule/scanIntentRules.js";
@@ -38,6 +39,7 @@ export async function initCore(): Promise<InitCoreResult> {
   const sys = await getSystemConfig();
   refreshIntentResultSchemaCache(sys);
   refreshSystemSchemaCache(sys);
+  refreshIntentSeparateSchemaCache(sys);
   console.log(
     `[System] 模块/域已加载: modules=${sys.modules.length} domains=${sys.domains.length} (version=${sys.version ?? "—"})`
   );

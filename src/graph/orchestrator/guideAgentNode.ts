@@ -1,4 +1,4 @@
-import type { GuideParamsBlock, SkillGuideEntry } from "../../lib/guides/types.js";
+import type { GuideParamsBlock, GuideEntry } from "../../lib/guides/types.js";
 import {
   findGuideByKey,
   listGuides
@@ -81,7 +81,7 @@ function fillParamsForGuide(
 }
 
 function scoreGuide(
-  guide: SkillGuideEntry,
+  guide: GuideEntry,
   userInput: string,
   slots: Record<string, unknown>
 ): number {
@@ -119,7 +119,7 @@ function scoreGuide(
 
 function resolveGuideMatch(
   state: OrchestratorState
-): SkillGuideEntry | undefined {
+): GuideEntry | undefined {
   const ir = state.intentResult;
   const pt = getPrimaryPlanningTask(ir, "data_query");
   const dq = getBestDataQueryIntent(ir);
@@ -146,7 +146,7 @@ function resolveGuideMatch(
       g.domain === "data_query" &&
       (!dq.segmentId || g.segment === dq.segmentId || dq.segmentId === "other")
   );
-  let best: SkillGuideEntry | undefined;
+  let best: GuideEntry | undefined;
   let bestScore = -1;
   for (const g of guides) {
     const s = scoreGuide(g, state.input.userInput, slots);
@@ -158,7 +158,7 @@ function resolveGuideMatch(
   return best ?? guides[0];
 }
 
-function shouldRunSql(guide: SkillGuideEntry): boolean {
+function shouldRunSql(guide: GuideEntry): boolean {
   const sid = guide.execution?.skillId;
   return !sid || sid === "sql-query";
 }

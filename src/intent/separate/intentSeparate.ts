@@ -5,15 +5,12 @@ import {
   shouldLogIntentRawLlm
 } from "../../config/intentPolicy.js";
 import { log } from "../../lib/log/log.js";
-import {
-  IntentSeparateResultSchema,
-  type IntentSeparateResult
-} from "./intentSeparateSchema.js";
 import { getIntentSeparateOutputParser } from "./intentSeparateOutputParser.js";
 import { buildIntentSeparateInstruction } from "../common/intentPromptUtils.js";
 import { allTools } from "../../lib/tools/tools.js";
 import { getModelNoThinking,getModel } from "../../model/index.js";
 import { emitProgressByConfig } from "../../graph/orchestrator/progressReporter.js";
+import { IntentSeparateResult } from "./IntentSeparateType.js";
 
 /** LLM 原始消息（仅在使用「手动 tool 循环」解析路径时需要） */
 export type IntentLlmRawMessage = {
@@ -47,7 +44,7 @@ export async function runIntentSeparateLlm(
   log("[Intent]", "getModel + LLM invoke 开始", `timeoutMs=${timeoutMs}`);
 
   const tools = [
-    allTools.list_skills_by_domain_segment,
+    allTools.find_skills,
     allTools.invoke_skill
   ];
   const base = getModelNoThinking(true) as unknown as {

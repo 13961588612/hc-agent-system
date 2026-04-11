@@ -14,13 +14,13 @@ import { getIntentSeparateOutputParser } from "../separate/intentSeparateOutputP
  */
 export const INTENT_COMMON_GUIDE_ID = "intent-planning-decompose-and-orchestrate";
 
-/** 第一阶段意图识别：规则内联在代码中，与 IntentSeparateResultSchema 一致 */
+/** 第一阶段意图识别：规则内联在代码中，与 {@link getIntentSeparateResultSchema} 一致 */
 function buildIntentSeparateRulesInline(): string {
   return `【第一阶段：轻量意图识别（仅下列 JSON 字段）】
 - 根据系统 module domain 配置拆分任务。
 - 输出唯一一个 JSON 对象，不要附加说明文字。
 - intents[]：至少 1 条；每条**必须**含 semanticTaskBrief、intent；intent 取值须为：data_query | data_analysis | knowledge_qa | chitchat | unknown（与代码校验一致）。
-- semanticTaskBrief：不含手机号/会员号/订单号等具体值的「语义完备的任务描述」，说明要有哪些条件、做哪类事、涉及哪类业务对象或数据；具体标识一律放 resolvedSlots，勿写入本字段。
+- semanticTaskBrief：不含手机号/会员号/订单号等具体值的「语义完备的任务描述」，说明要有哪些条件、做哪类事、涉及哪类业务对象或数据,比如根据会员卡号查询一段时间内的会员销售和会员的资料；具体标识一律放 resolvedSlots，勿写入本字段。
 - moduleId、domainId：与该项任务语义对应的module/domain（可选，但与配置列表对齐）。
 - 每条可选：goal、confidence、resolvedSlots、replySuggestion。
 - 根级可选：replyLocale（与 schema 枚举一致）、confidence、replySuggestion。

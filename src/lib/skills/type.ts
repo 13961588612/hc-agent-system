@@ -1,30 +1,18 @@
 import z from "zod";
-import type { EnvConfig } from "../../config/envConfig.js";
-import { SkillGuideEntry } from "../guides/index.js";
-import type { DbClient } from "../infra/dbClient.js";
-import type { DbClientManager } from "../infra/dbClientManager.js";
+import { GuideEntry } from "../guides/index.js";
 
-/**
- * 技能执行时可注入的上下文。
- * 与 `docs/skills-dynamic-disclosure-spec.md` 中的 SkillContext 一致。
- *
- * **数据库解析优先级**：若同时存在 `dbClient`，优先使用；否则若有 {@link DbClientManager}，
- * 用 {@link dbClientKey}（默认 `default`）从管理器取客户端；再否则由技能内回退（如新建 `DummyDbClient`）。
- */
+
 export interface SkillContext {
-  /** 直接注入单个连接时优先使用 */
-  dbClient?: DbClient;
-  /** 多数据源时从管理器按名解析 */
-  dbClientManager?: DbClientManager;
-  /** 在 {@link dbClientManager} 中查找的名称，缺省为 `default` */
   dbClientKey?: string;
-  env?: EnvConfig;
   threadId?: string;
   taskId?: string;
 }
 
-export const skillKindSchema = z.enum(["skill", "guide", "playbook"]);
-export type skillKind = z.infer<typeof skillKindSchema>;
+export const SkillKindSchema = z.enum(["skill", "guide", "playbook"]);
+
+export type SkillKind = z.infer<typeof SkillKindSchema>;
+
+export type SkillDetail =  GuideEntry | unknown;
 
 export interface SkillCapabilityBrief {
   id: string;
@@ -36,12 +24,12 @@ export interface SkillBriefInfo {
   id: string;
   name: string;
   description: string;
-  /** 对齐系统配置中的域 id，如 data_query/core/member */
+
+  moduleId?: string;
+
   domainId?: string;
-  /** 对齐系统配置中的分段 id，如 member/ecommerce/other */
-  segmentId?: string;
   /** 区分可执行技能 vs Guide/Playbook */
-  kind: skillKind;
+  kind: SkillKind;
 
   capabilities?: SkillCapabilityBrief[];
   /** 入参一句话摘要（来自 Guide 的 inputBrief / params，供列表与 tool 快速扫读） */
@@ -50,17 +38,8 @@ export interface SkillBriefInfo {
   outputSummary?: string;
 }
 
-/**
- * 可披露元数据（L1）：用于 Registry 检索、get-skills-info、向量索引等。
- * **不含** `run`，避免把实现细节塞进 prompt。
- *
- * @typeParam TInput - 与该技能 `run` 的入参类型对齐；具体技能上写 `SkillMeta<SqlSkillInput, …>` 可获得类型提示。
- * @typeParam TOutput - 与 `run` 的返回类型对齐。Registry / invoke-skill 等异构场景通常使用默认 `unknown`。
- *
- * **关于 `outputSchema`**：非必填。需要约定「典型返回形状」、生成工具文档或与编排校验衔接时再填；
- * 不填时以 `run` 实际返回值为准，Registry 不强制校验输出。
- */
-export interface SkillMeta<TInput = unknown, TOutput = unknown> {
+
+export interface SkillMeta {
   /** 全局唯一技能 id，如 `sql-query`，用于注册与 invoke-skill */
   id: string;
   /** 给人看的短名称 */
@@ -78,13 +57,13 @@ export interface SkillMeta<TInput = unknown, TOutput = unknown> {
    */
   examples?: string[];
   /** 第一层：顶层域，见 {@link SkillDomain} */
-  domainId?: string;
+  moduleId?: string;
   /**
    * 第二层：域内业务分段（可选）。与 `domainId` 组合使用，如：
    * `domainId: "data_query"` + `segmentId: "member"`。
    * 通用技能（`domainId: "core"`）通常无需填写。
    */
-  segmentId?: string;
+  domainId?: string;
   /**
    * 入参结构描述（如 JSON Schema 子集），供工具调用前校验或生成表单；可选。
    * 与泛型 `TInput` 语义对应；运行时仍以 TS 类型与 `run` 为准。
@@ -96,33 +75,7 @@ export interface SkillMeta<TInput = unknown, TOutput = unknown> {
    */
   outputSchema?: Record<string, unknown>;
 
-  kind: skillKind;
+  kind: SkillKind;
 
-  skill?: SkillGuideEntry | unknown;
+  skill?: SkillDetail;
 }
-
-/**
- * 完整技能定义：元数据 + `run`。
- * 每个 `*Skill.ts` 应导出 `skillDef: SkillDef<…>`（或 `default`）供发现器注册。
- *
- * @typeParam TInput - 入参类型
- * @typeParam TOutput - 返回类型
- *
- * @example
- * `export const skillDef: SkillDef<SqlSkillInput, SqlQueryResult> = { id: "sql-query", …, run: async (input, ctx) => … }`
- */
-export interface SkillDef<TInput = unknown, TOutput = unknown>
-  extends SkillMeta<TInput, TOutput> {
-  run: (input: TInput, context?: SkillContext) => Promise<TOutput>;
-}
-
-/**
- * 异构注册表、动态发现、invoke-skill 等场景下的**类型擦除**形态（不保留具体 TInput/TOutput）。
- */
-export type AnySkillDef = SkillDef<unknown, unknown>;
-
-/** 仅元数据、无 `run` 时的擦除形态（如 getDisclosureMeta 列表项） */
-export type AnySkillMeta = SkillMeta<unknown, unknown>;
-
-/** getSkillDetailById 等返回的异构详情：目录项元数据、原始 Guide 或其它未知形状 */
-export type SkillOrGuideDetail = AnySkillMeta | SkillGuideEntry | unknown;

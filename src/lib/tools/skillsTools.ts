@@ -1,30 +1,30 @@
 import z from "zod";
-import { getSkillDetailById, listSkillsByDomainSegment } from "../skills/catalog.js";
-import type { SkillOrGuideDetail } from "../skills/type.js";
+import { getSkillDetailById, listSkills } from "../skills/catalog.js";
+import { SkillDetail } from "../skills/type.js";
 
 const listSkillsInputSchema = z.object({
-  domainId: z.string().describe("技能顶层域，不支持通过分隔符一次传入多个值"),
-  segmentId: z.string().describe("业务分段，不支持通过分隔符一次传入多个值")
+  moduleId: z.string().describe("技能模块id"),
+  domainId: z.string().describe("技能域id")
 });
 
 const invokeSkillInputSchema = z.object({
-  skillId: z.string().describe("技能 id，如 member-profile-by-user-id ")
+  skillId: z.string().describe("技能 id ")
 });
 
-export const listSkillsByDomainSegmentTool = {
-  name: "list_skills_by_domain_segment",
-  description: "按 domain + segment 查询该分段下所有 skills 的简要信息",
+export const findSkillsTool = {
+  name: "find_skills",
+  description: "按 domainId查询所有 skills 的简要信息",
   schema: listSkillsInputSchema
 };
 
-export async function runListSkillsByDomainSegmentTool(
+export async function findSkills(
   domainId: string,
-  segmentId: string
 ): Promise<string> {
-  const skills = listSkillsByDomainSegment(domainId, segmentId).map((s) => ({
+  const skills = listSkills(domainId).map((s) => ({
     id: s.id,
     name: s.name,
     kind: s.kind,
+    domainId: s.domainId,
     description: s.description,
     capabilities: s.capabilities,
     inputSummary: s.inputSummary,
@@ -40,9 +40,9 @@ export const invokeSkillTool = {
 };
 
 function truncateGuideBodyInDetail(
-  detail: SkillOrGuideDetail,
+  detail: SkillDetail,
   maxChars: number
-): SkillOrGuideDetail {
+): SkillDetail {
   if (!detail || typeof detail !== "object") return detail;
   const d = detail as Record<string, unknown>;
   const skill = d["skill"];
@@ -56,7 +56,7 @@ function truncateGuideBodyInDetail(
       ...s,
       body: `${body.slice(0, maxChars)}\n\n...[正文已截断：${body.length}→${maxChars} 字；规划请用 inputSummary/outputSummary、inputBrief、params、outputBrief；完整正文在执行阶段拉取]`
     }
-  } as SkillOrGuideDetail;
+  } as SkillDetail;
 }
 
 /**
@@ -64,13 +64,13 @@ function truncateGuideBodyInDetail(
  */
 export async function runInvokeSkillTool(
   skillId: string,
-  options?: { maxGuideBodyChars?: number }
+  options: { maxGuideBodyChars?: number } = { maxGuideBodyChars: 8000 }
 ): Promise<string> {
   const detail = getSkillDetailById(skillId);
   if (!detail) {
     return JSON.stringify({ ok: false, error: `skill 不存在: ${skillId}` });
   }
-  const max = options?.maxGuideBodyChars;
+  const max = options.maxGuideBodyChars;
   const payload =
     max !== undefined && max > 0
       ? truncateGuideBodyInDetail(detail, max)

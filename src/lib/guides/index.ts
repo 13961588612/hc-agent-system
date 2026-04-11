@@ -2,8 +2,8 @@ export type {
   GuideExecution,
   GuideParamDef,
   GuideParamsBlock,
-  SkillGuideEntry,
-  SkillGuideMeta
+  GuideEntry,
+  GuideMeta
 } from "./types.js";
 export {
   clearGuides,
@@ -11,7 +11,7 @@ export {
   getGuide,
   getGuideById,
   listGuides,
-  listGuidesByDomain,
+  listGuidesByDomainId,
   listGuidesByTag,
   registerGuide
 } from "./guideRegistry.js";

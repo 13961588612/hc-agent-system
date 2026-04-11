@@ -59,14 +59,14 @@ export interface GuideOutputBrief {
   fields?: GuideOutputFieldBrief[];
 }
 
-export interface SkillGuideMeta {
+export interface GuideMeta {
   id: string;
   kind: "guide";
   title: string;
   /** 短说明：披露/检索用，不必重复 `title` 全文 */
   description?: string;
-  domain?: string;
-  segment?: string;
+  
+  domainId?: string;
   relatedSkillIds?: string[];
   tags?: string[];
   /** 分布式槽位；未配置时 Guide 仍可作为纯说明文档 */
@@ -79,7 +79,7 @@ export interface SkillGuideMeta {
   outputBrief?: GuideOutputBrief;
 }
 
-export interface SkillGuideEntry extends SkillGuideMeta {
+export interface GuideEntry extends GuideMeta {
   /** Markdown 正文（不含 frontmatter） */
   body: string;
   /** 解析来源的绝对或规范化路径 */

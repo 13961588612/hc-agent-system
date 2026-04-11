@@ -1,8 +1,8 @@
 import { z } from "zod/v3";
 import { SelectedSkillKindSchema } from "../../contracts/intentSchemas.js";
 import {
-  IntentSeparateItemSchema,
-  IntentSeparateResultSchema,
+  getIntentSeparateItemSchema,
+  getIntentSeparateResultSchema,
   type IntentSeparateResult
 } from "../separate/intentSeparateSchema.js";
 
@@ -54,7 +54,10 @@ export const TaskSchema = z.object({
   /** 对应 `intentSeparateResult.intents` 的下标（0-based） */
   separateIntentItemIndex: z.number().int().min(0).describe("对应 intentSeparateResult.intents 的下标"),
   /** 可选快照，便于校验与离线展示；若提供应与 `intents[separateItemIndex]` 一致 */
-  intentItem: IntentSeparateItemSchema.optional().describe("可选：对应意图项快照")
+  intentItem: z
+    .lazy(() => getIntentSeparateItemSchema())
+    .optional()
+    .describe("可选：对应意图项快照")
 
 }).describe("单条子任务定义（对应原 planningTasks[] 中一行）");
 
@@ -66,7 +69,7 @@ export const TaskSchema = z.object({
  */
 export const PlanSchema = z
   .object({
-    intentSeparateResult: IntentSeparateResultSchema,
+    intentSeparateResult: z.lazy(() => getIntentSeparateResultSchema()),
     planVersion: z.string().optional().describe("规划结构版本，便于协议演进"),
     tasks: z.array(TaskSchema).min(0)
   })

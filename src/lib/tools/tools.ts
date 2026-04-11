@@ -3,10 +3,10 @@ import { readFileTool, runFileRead, runFileWrite, writeFileTool } from "./fileTo
 import { runSqlQueryTool, sqlQueryTool } from "./sqlQueryTool.js";
 import { SqlSkillInput } from "../skills/core/sqlQuerySkill.js";
 import {
+  findSkills,
+  findSkillsTool,
   invokeSkillTool,
-  listSkillsByDomainSegmentTool,
   runInvokeSkillTool,
-  runListSkillsByDomainSegmentTool
 } from "./skillsTools.js";
 
 type ToolKwargs = Record<string, unknown>;
@@ -20,7 +20,7 @@ export const TOOL_HANDLERS: Record<
   read_file: (kw) => runFileRead(kw["path"] as string, kw["limit"] as number | undefined),
   write_file: (kw) => runFileWrite(kw["path"] as string, kw["content"] as string),
   sql_query: (kw) => runSqlQueryTool(kw["sqlQueryInput"] as SqlSkillInput),
-  list_skills_by_domain_segment: (kw) => runListSkillsByDomainSegmentTool(kw["domainId"] as string, kw["segmentId"] as string),
+  find_skills: (kw) => findSkills(kw["domainId"] as string),
   invoke_skill: (kw) => runInvokeSkillTool(kw["skillId"] as string),
 };
 
@@ -30,6 +30,6 @@ export const allTools: Record<string, unknown> = {
     read_file: readFileTool,
     write_file: writeFileTool,
     sql_query: sqlQueryTool,
-    list_skills_by_domain_segment: listSkillsByDomainSegmentTool,
+    find_skills: findSkillsTool,
     invoke_skill: invokeSkillTool,
 }

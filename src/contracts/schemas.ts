@@ -200,11 +200,9 @@ export const OrchestratorStateSchema = new StateSchema({
   /** 编排器入口：用户输入、用户 id、渠道、环境配置等 */
   input: OrchestratorInputSchema,
   /** 意图识别后的高层域：数据查询类 vs 其他 */
-  highLevelDomain: z.enum(["data_query", "other"]).optional(),
+  highLevelDomain: z.string().optional(),
   /** 结构化意图（LLM + 兜底）；校验随 `system.yaml` segments，故用 lazy 在运行时解析 */
   intentResult: z.lazy(() => getIntentResultSchema()).optional(),
-  /** 意图阶段输出的步骤提示（供前端展示“当前执行到哪一步”） */
-  intentProgressSteps: z.array(z.string()).optional(),
   /** 程序化规划统计（如可复用计划命中） */
   intentPlanningStats: z
     .object({
@@ -283,7 +281,6 @@ export type OrchestratorState = {
   input: z.infer<typeof OrchestratorInputSchema>;
   highLevelDomain?: "data_query" | "other";
   intentResult?: IntentResult;
-  intentProgressSteps?: string[];
   intentPlanningStats?: {
     reuseHit?: number;
     reuseMiss?: number;
@@ -314,3 +311,9 @@ export const SystemModuleIdSchema = z.enum([
   "knowledge_qa"
 ]);
 
+
+/**
+ * ------------------------------------------------------------------------------
+ */
+
+export const LocaleSchema = z.enum(["zh", "en", "auto", "zh-CN", "zh-TW", "en-US", "en-GB"]);

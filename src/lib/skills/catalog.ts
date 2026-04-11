@@ -1,11 +1,10 @@
-import type { SkillGuideEntry } from "../guides/types.js";
+import type { GuideEntry } from "../guides/types.js";
 import { getGuide, listGuides } from "../guides/guideRegistry.js";
-import { getDomainEntry, getSystemConfig, getSegmentEntry } from "../../config/systemConfig.js";
 import type {
-  AnySkillMeta,
   SkillBriefInfo,
   SkillCapabilityBrief,
-  SkillOrGuideDetail
+  SkillDetail,
+  SkillMeta,
 } from "./type.js";
 
 /**
@@ -14,11 +13,11 @@ import type {
  * - 先用于 tool 查询（按 domain+segment / 按 id）。
  * - 后续可替换为动态发现与注册中心。
  */
-function buildSkillCatalog(): AnySkillMeta[] {
+function buildSkillCatalog(): SkillMeta[] {
   const guides = listGuides();
   //const playbooks = listPlaybooks();
 
-  const skills: AnySkillMeta[] = [];
+  const skills: SkillMeta[] = [];
   guides.forEach(g => {
     skills.push(generateSkillByGuide(g));
   });
@@ -26,7 +25,7 @@ function buildSkillCatalog(): AnySkillMeta[] {
 }
 
 /** 从 Guide 头部/槽位元数据构造入参说明（供 disclose、invoke 与规划引用） */
-function buildInputSchemaFromGuide(guide: SkillGuideEntry): Record<string, unknown> | undefined {
+function buildInputSchemaFromGuide(guide: GuideEntry): Record<string, unknown> | undefined {
   const hasParams =
     (guide.params?.required?.length ?? 0) > 0 || (guide.params?.optional?.length ?? 0) > 0;
   const hasInputBrief = (guide.inputBrief?.required?.length ?? 0) > 0;
@@ -49,7 +48,7 @@ function buildInputSchemaFromGuide(guide: SkillGuideEntry): Record<string, unkno
 }
 
 /** 从 Guide 头部输出摘要构造出参说明（字段名、类型、是否可空等） */
-function buildOutputSchemaFromGuide(guide: SkillGuideEntry): Record<string, unknown> | undefined {
+function buildOutputSchemaFromGuide(guide: GuideEntry): Record<string, unknown> | undefined {
   const ob = guide.outputBrief;
   if (!ob) return undefined;
   const hasFields = (ob.fields?.length ?? 0) > 0;
@@ -71,7 +70,7 @@ function truncateIoSummary(s: string): string {
 }
 
 /** 列表用入参一句话摘要 */
-function buildInputSummaryFromGuide(guide: SkillGuideEntry): string | undefined {
+function buildInputSummaryFromGuide(guide: GuideEntry): string | undefined {
   const seen = new Set<string>();
   const requiredLabels: string[] = [];
   for (const p of guide.inputBrief?.required ?? []) {
@@ -99,7 +98,7 @@ function buildInputSummaryFromGuide(guide: SkillGuideEntry): string | undefined 
 }
 
 /** 列表用出参一句话摘要 */
-function buildOutputSummaryFromGuide(guide: SkillGuideEntry): string | undefined {
+function buildOutputSummaryFromGuide(guide: GuideEntry): string | undefined {
   const ob = guide.outputBrief;
   if (!ob) return undefined;
   const parts: string[] = [];
@@ -116,14 +115,14 @@ function buildOutputSummaryFromGuide(guide: SkillGuideEntry): string | undefined
   return truncateIoSummary(parts.join("；"));
 }
 
-function ioSummariesForMeta(s: AnySkillMeta): {
+function ioSummariesForMeta(s: SkillMeta): {
   inputSummary?: string;
   outputSummary?: string;
 } {
   if (s.kind !== "guide") return {};
   const g = s.skill;
   if (!g || typeof g !== "object" || !("id" in g)) return {};
-  const guide = g as SkillGuideEntry;
+  const guide = g as GuideEntry;
   const inputSummary = buildInputSummaryFromGuide(guide);
   const outputSummary = buildOutputSummaryFromGuide(guide);
   return {
@@ -132,7 +131,7 @@ function ioSummariesForMeta(s: AnySkillMeta): {
   };
 }
 
-function generateSkillByGuide(guide: SkillGuideEntry): AnySkillMeta {
+function generateSkillByGuide(guide: GuideEntry): SkillMeta {
   const capabilities: SkillCapabilityBrief[] = [
     //{ id: guide.id, ...(guide.description ? { description: guide.description } : {}) }
   ];
@@ -143,44 +142,41 @@ function generateSkillByGuide(guide: SkillGuideEntry): AnySkillMeta {
     id: guide.id,
     name: guide.title,
     description: guide.description ?? "",
-    domainId: guide.domain,
-    segmentId: guide.segment,
+    domainId: guide.domainId,
     kind: "guide" as const,
     capabilities: capabilities,
     ...(inputSchema ? { inputSchema } : {}),
     ...(outputSchema ? { outputSchema } : {}),
     skill: guide
-  } as AnySkillMeta;
+  } as SkillMeta;
 }
 
-let SKILL_CATALOG: AnySkillMeta[] | undefined = undefined;
+let SKILL_CATALOG: SkillMeta[] | undefined = undefined;
 
-export function getSkillCatalog(): AnySkillMeta[] {
+export function getSkillCatalog(): SkillMeta[] {
   if (!SKILL_CATALOG) {
     SKILL_CATALOG = buildSkillCatalog();
   }
   return SKILL_CATALOG;
 }
 
-export function listSkillsByDomainSegment(
+export function listSkills(
   domainId: string,
-  segmentId: string
 ): SkillBriefInfo[] {
   const normalizeCapabilities = (
-    capabilities: AnySkillMeta["capabilities"]
+    capabilities: SkillMeta["capabilities"]
   ): SkillCapabilityBrief[] | undefined => {
     if (!capabilities || capabilities.length === 0) return undefined;
     return capabilities as SkillCapabilityBrief[];
   };
 
   const skills = getSkillCatalog().filter(
-    (s) => (s.domainId ?? "") === domainId && (s.segmentId ?? "") === segmentId
+    (s) => (s.domainId ?? "") === domainId
   ).map((s) => ({
     id: s.id,
     name: s.name,
     description: s.description,
     domainId: s.domainId,
-    segmentId: s.segmentId,
     kind: s.kind,
     capabilities: normalizeCapabilities(s.capabilities),
     ...ioSummariesForMeta(s)
@@ -189,7 +185,7 @@ export function listSkillsByDomainSegment(
   return [...skills];
 }
 
-export function getSkillDetailById(skillId: string): SkillOrGuideDetail | undefined {
+export function getSkillDetailById(skillId: string): SkillDetail {
   const skill = getSkillCatalog().find((s) => s.id === skillId);
   if (skill) {
     return skill;

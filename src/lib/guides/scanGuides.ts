@@ -9,7 +9,7 @@ import {
   parseOutputBrief,
   parseParamsBlock
 } from "./parseGuideMeta.js";
-import type { SkillGuideEntry } from "./types.js";
+import type { GuideEntry } from "./types.js";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
 
@@ -45,7 +45,7 @@ async function collectMdFiles(dir: string): Promise<string[]> {
   return out;
 }
 
-function parseGuideFile(content: string, filePath: string): SkillGuideEntry | null {
+function parseGuideFile(content: string, filePath: string): GuideEntry | null {
   const m = content.match(FRONTMATTER);
   if (!m) return null;
   let meta: unknown;
@@ -67,24 +67,20 @@ function parseGuideFile(content: string, filePath: string): SkillGuideEntry | nu
   const execution = parseExecutionBlock(o.execution);
   const inputBrief = parseInputBrief(o.inputBrief);
   const outputBrief = parseOutputBrief(o.outputBrief);
-  if (typeof o.skillTemplateId === "string" || typeof o.queryTemplateId === "string") {
-    console.warn(
-      `[Guides] ${filePath}: 检测到已废弃字段 skillTemplateId/queryTemplateId；当前统一使用 id 作为规划键`
-    );
-  }
+
   if (Array.isArray(o.capabilities)) {
     console.warn(
       `[Guides] ${filePath}: 检测到已废弃字段 capabilities；当前仅支持单文件单 skill，请拆分为多个 guide 文件`
     );
   }
 
-  const entry: SkillGuideEntry = {
+  const entry: GuideEntry = {
     id,
     kind: "guide",
     title,
     ...(description ? { description } : {}),
-    domain: typeof o.domain === "string" ? o.domain : undefined,
-    segment: typeof o.segment === "string" ? o.segment : undefined,
+    
+    domainId: typeof o.domainId === "string" ? o.domainId : undefined,
     relatedSkillIds: Array.isArray(o.relatedSkillIds)
       ? o.relatedSkillIds.filter((x): x is string => typeof x === "string")
       : undefined,

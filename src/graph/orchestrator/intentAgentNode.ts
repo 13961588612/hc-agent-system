@@ -63,8 +63,6 @@ export async function intentAgentNode(
   for (const s of intentProgressSteps) {
     await emitProgressByConfig(config, s);
   }
-  return {
-    ...out,
-    intentProgressSteps
-  };
+  /** 进度仅经 {@link emitProgressByConfig} 推客户端，不写入 State，避免 checkpoint 持久化 */
+  return { ...out };
 }

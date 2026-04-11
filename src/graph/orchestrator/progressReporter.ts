@@ -1,4 +1,8 @@
-type ProgressHandler = (message: string) => Promise<void> | void;
+/**
+ * 运行期进度：仅通过 handler 推送到渠道（如企微流式），**不**写入 LangGraph State / checkpoint。
+ * 节点内请使用 {@link emitProgressByConfig}，勿把进度条目标识放进持久化字段。
+ */
+type ProgressHandler = (threadId: string, message: string) => Promise<void> | void;
 
 const handlers = new Map<string, ProgressHandler>();
 
@@ -23,7 +27,7 @@ export async function emitProgressByThreadId(
   if (!id) return;
   const h = handlers.get(id);
   if (!h) return;
-  await h(message);
+  await h(id, message);
 }
 
 export async function emitProgressByConfig(
