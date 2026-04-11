@@ -19,7 +19,7 @@ import {
   fetchTextEmbedding,
   l2Normalize
 } from "../common/textEmbedding.js";
-import { buildSeedIntentResultFromIntentSeparate } from "../separate/intentSeparateSeed.js";
+import { buildSeedIntentResultFromIntentSeparate } from "./intentSeparateSeed.js";
 import { IntentSeparateResult } from "./index.js";
 
 

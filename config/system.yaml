@@ -10,13 +10,19 @@ version: 1
 intention:
   - id: query
     title: 数据查询
-    description: 问数/数据查询模块;
+    description: 问数/数据查询;
   - id: analysis
     title: 数据分析
-    description: 业务分析/数据分析模块;
+    description: 业务分析/数据分析;
   - id: form
     title: 表单/单据制作
     description: 智能表单模块;
+  - id: chitchat
+    title: 闲聊
+    description: 闲聊;
+  - id: unknown
+    title: 未知
+    description: 未知;
 
 domains:
   - id: member

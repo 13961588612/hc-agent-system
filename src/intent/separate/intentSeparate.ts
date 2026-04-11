@@ -86,6 +86,7 @@ export async function applyIntentSeparate(
   const intentSeparateResult: IntentSeparateResult = await runIntentSeparateLlm(userContent);
   const message = buildIntentSeparateProgressMessage(intentSeparateResult);
   try {
+    console.log("intentSeparate message", message);
     await emitProgressByConfig(config, message);
   } catch (error) {
     log(

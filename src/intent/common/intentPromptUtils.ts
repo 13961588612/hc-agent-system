@@ -6,6 +6,7 @@ import {
   type DomainEntry,
   type IntentionEntry
 } from "../../config/systemConfig.js";
+import { getDomainIdDescription, getIntentionIdDescription } from "../../contracts/SystemSchema.js";
 import { getIntentSeparateOutputParser } from "../separate/intentSeparateOutputParser.js";
 
 /**
@@ -17,17 +18,14 @@ export const INTENT_COMMON_GUIDE_ID = "intent-planning-decompose-and-orchestrate
 /** 第一阶段意图识别：规则内联在代码中，与 {@link getIntentSeparateResultSchema} 一致 */
 function buildIntentSeparateRulesInline(): string {
   return `【第一阶段：轻量意图识别（仅下列 JSON 字段）】
-- 根据系统 module domain 配置拆分任务。
+- 根据系统设定的 意图类型 与 域类型 配置拆分子意图。
 - 输出唯一一个 JSON 对象，不要附加说明文字。
-- intents[]：至少 1 条；每条**必须**含 semanticTaskBrief、intent；intent 取值须为：data_query | data_analysis | knowledge_qa | chitchat | unknown（与代码校验一致）。
-- semanticTaskBrief：不含手机号/会员号/订单号等具体值的「语义完备的任务描述」，说明要有哪些条件、做哪类事、涉及哪类业务对象或数据,比如根据会员卡号查询一段时间内的会员销售和会员的资料；具体标识一律放 resolvedSlots，勿写入本字段。
-- moduleId、domainId：与该项任务语义对应的module/domain（可选，但与配置列表对齐）。
-- 每条可选：goal、confidence、resolvedSlots、replySuggestion。
-- 根级可选：replyLocale（与 schema 枚举一致）、confidence、replySuggestion。
+- intents[]：至少 1 条；
+- intent：意图类型,${getIntentionIdDescription()}
+- domainId：域类型,${getDomainIdDescription()}
 - 不要输出其他字段。
 - 不要拆分到各个步骤，如果多个步骤组合完成一个任务，应该整合在一个任务里。
-- 一个任务不应跨多个 module/domain，如果一个任务跨多个 module/domain，应该拆分为多个任务。
-- 查询技能列表时，同一moduleId/domainId只查询一次，不要重复查询。
+- 一个子意图不应跨多个意图类型与域类型，如果一个子意图跨多个意图类型与域类型，应该拆分为多个子意图。
 `;
 }
 
@@ -39,92 +37,9 @@ export function resetIntentPromptSystemContextCache(): void {
   intentPromptSystemContextCache = undefined;
 }
 
-function formatIntentionLine(i: IntentionEntry): string {
-  const parts: string[] = [];
-  if (i.title) parts.push(`标题：${i.title}`);
-  if (i.description) parts.push(`说明：${i.description}`);
-  const tail = parts.length ? ` | ${parts.join(" | ")}` : "";
-  return `  - intentionId="${i.id}"${tail}`;
-}
-
-function formatBusinessSegmentLine(d: DomainEntry): string {
-  const parts: string[] = [];
-  if (d.title) parts.push(`标题：${d.title}`);
-  if (d.description) parts.push(d.description);
-  const tail = parts.length ? ` | ${parts.join(" | ")}` : "";
-  return `  - segmentId="${d.id}"${tail}`;
-}
-
-function formatOtherDomainLine(d: DomainEntry): string {
-  const facetStr =
-    d.facets && d.facets.length > 0 ? ` facets=[${d.facets.join(", ")}]` : "";
-  const parts: string[] = [];
-  if (d.title) parts.push(d.title);
-  if (d.description) parts.push(d.description);
-  const meta = parts.length ? ` | ${parts.join(" | ")}` : "";
-  return `  - domainId="${d.id}"${facetStr}${meta}`;
-}
-
-/**
- * 将当前 `system.yaml` 摘要注入意图提示词：
- * - intention（根键，载入后为 modules）→ systemModuleId
- * - domains（facets 含 business）→ segmentId
- * - 其余 domains → domainId / facets 参考
- * - skills 相关：显式列出 facets 含 skills 的域，否则给工具参数约定说明
- */
-async function formatSystemContextForIntentPrompt(): Promise<string> {
-  const cfg = await getSystemConfig();
-  const ver =
-    typeof cfg.version === "number" && Number.isFinite(cfg.version)
-      ? String(cfg.version)
-      : "—";
-
-  const intentions = await listIntentions();
-  const intentionBlock =
-    intentions.length > 0
-      ? intentions.map(formatIntentionLine).join("\n")
-      : `  - （未配置 intention：intentionId 须与 intents 语义一致，可用 query / analysis等与配置 id 一致）`;
-
-  const business = await listBusinessDomains();
-  const businessBlock =
-    business.length > 0
-      ? business.map(formatBusinessSegmentLine).join("\n")
-      : `  - （无 facets 含 business 的域：segmentId 可用 other 或与 list_skills 披露一致）`;
-
-  const allDomains = await listDomains();
-  const businessIds = new Set(business.map((b) => b.id));
-  const otherDomains = allDomains.filter((d) => !businessIds.has(d.id));
-  const otherBlock =
-    otherDomains.length > 0
-      ? `\n- 其它 domains（含 facets，可作 domainId 或非业务分段参考）：\n${otherDomains.map(formatOtherDomainLine).join("\n")}`
-      : "";
-
-  const skillsFacetDomains = allDomains.filter((d) =>
-    (d.facets ?? []).includes("skills")
-  );
-  const skillsBlock =
-    skillsFacetDomains.length > 0
-      ? `\n- 技能披露 skillsDomainId（facets 含 skills）：\n${skillsFacetDomains
-          .map(
-            (d) =>
-              `  - skillsDomainId="${d.id}"${d.title ? ` | ${d.title}` : ""}`
-          )
-          .join("\n")}\n- skillsSegmentId 宜与上列 segmentId / domainId 对齐。`
-      : `\n- 技能披露约定：list_skills_by_domain_segment 的 domain 常为 data_query；skillsSegmentId 与业务 segmentId 一致（如 member、ecommerce）。`;
-
-  return `【当前系统信息】（来自 config/system.yaml）
-- 配置 version：${ver}
-- 意图模块（system.yaml intention → systemModuleId）
-${intentionBlock}
-- 业务分段（segmentId，domains 且 facets 含 business）
-${businessBlock}${otherBlock}${skillsBlock}`;
-}
 
 async function getSystemContextForIntentPrompt(): Promise<string> {
-  if (intentPromptSystemContextCache === undefined) {
-    intentPromptSystemContextCache = await formatSystemContextForIntentPrompt();
-  }
-  return intentPromptSystemContextCache;
+  return "";
 }
 
 export async function buildIntentSeparateInstruction(): Promise<string> {

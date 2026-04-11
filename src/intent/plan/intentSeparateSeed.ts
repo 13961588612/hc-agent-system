@@ -1,4 +1,4 @@
-import type { IntentSeparateResult } from "./intentSeparateSchema.js";
+import type { IntentSeparateResult } from "../separate/intentSeparateSchema.js";
 
 /**
  * 将 intentSeparate LLM 输出转为可喂给 `getIntentResultSchema().parse` 的种子对象，

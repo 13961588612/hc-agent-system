@@ -125,7 +125,8 @@ export async function runOrchestratorGraph(
   input: OrchestratorInput,
   config?: { configurable?: { thread_id?: string } },
   options?: {
-    onProgress?: (message: string) => Promise<void> | void;
+    /** 与 {@link registerProgressHandler} 一致：首参 thread_id，次参进度文案 */
+    onProgress?: (threadId: string, message: string) => Promise<void> | void;
   }
 ) {
   const runConfig =

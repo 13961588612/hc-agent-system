@@ -8,7 +8,7 @@ export {
   buildIntentSeparateSchemas,
   type IntentSeparateResult
 } from "../separate/intentSeparateSchema.js";
-export { buildSeedIntentResultFromIntentSeparate } from "../separate/intentSeparateSeed.js";
+export { buildSeedIntentResultFromIntentSeparate } from "./intentSeparateSeed.js";
 export {
   getReusableStepTemplate,
   saveReusableStepTemplate

@@ -118,7 +118,8 @@ export function startWeComLongConnection(cfg: WeComChannelConfig, env: EnvConfig
         },
         { configurable: { thread_id: threadId } },
         {
-          onProgress: async (message) => {
+          /** 与 {@link registerProgressHandler} 一致：首参为 thread_id，次参为进度文案 */
+          onProgress: async (_threadId: string, message: string) => {
             const payload = appendStreamProgress(streamId, message, Date.now());
             await wsClient.replyStream(
               { headers: frame.headers },

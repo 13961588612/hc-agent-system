@@ -26,19 +26,21 @@ export function buildSystemSchemas(config: SystemConfig) {
     ["business", "skills"]
   );
 
-  const IntentionIdSchema = z.enum(intentionIdValues);
-  const DomainIdSchema = z.enum(domainIdValues);
-  const FacetSchema = z.enum(facetValues);
+  const IntentionIdEnumSchema = z.enum(intentionIdValues);
+  const DomainIdEnumSchema = z.enum(domainIdValues);
+  const FacetEnumSchema = z.enum(facetValues);
+
   const IntentionEntrySchema = z.object({
-    id: IntentionIdSchema,
+    id: IntentionIdEnumSchema,
     title: z.string().optional(),
     description: z.string().optional()
   });
+
   const DomainEntrySchema = z.object({
-    id: DomainIdSchema,
+    id: DomainIdEnumSchema,
     title: z.string().optional(),
     description: z.string().optional(),
-    facets: z.array(FacetSchema).optional()
+    facets: z.array(FacetEnumSchema).optional()
   });
   const SystemConfigSchema = z.object({
     version: z.number().optional(),
@@ -46,13 +48,18 @@ export function buildSystemSchemas(config: SystemConfig) {
     domains: z.array(DomainEntrySchema).optional()
   });
 
+  const IntentionIdDescription = config.intentions.map((i) => "["+i.id+":"+i.title+"]").join(", ");
+  const DomainIdDescription = config.domains.map((d) => "["+d.id+":"+d.title+"]").join(", ");
+
   return {
-    IntentionIdSchema,
-    DomainIdSchema,
-    FacetSchema,
+    IntentionIdEnumSchema,
+    DomainIdEnumSchema,
+    FacetEnumSchema,
     IntentionEntrySchema,
     DomainEntrySchema,
-    SystemConfigSchema
+    SystemConfigSchema,
+    IntentionIdDescription,
+    DomainIdDescription,
   };
 }
 
@@ -66,10 +73,12 @@ export function getSystemSchemas() {
   return cached;
 }
 
-export const getIntentionIdSchema = () => cached.IntentionIdSchema;
-export const getDomainIdSchema = () => cached.DomainIdSchema;
-export const getFacetSchema = () => cached.FacetSchema;
+export const getIntentionIdSchema = () => cached.IntentionIdEnumSchema;
+export const getDomainIdSchema = () => cached.DomainIdEnumSchema;
+export const getFacetSchema = () => cached.FacetEnumSchema;
 export const getIntentionEntrySchema = () => cached.IntentionEntrySchema;
 export const getDomainEntrySchema = () => cached.DomainEntrySchema;
 export const getSystemConfigSchema = () => cached.SystemConfigSchema;
 
+export const getIntentionIdDescription = () => cached.IntentionIdDescription;
+export const getDomainIdDescription = () => cached.DomainIdDescription;
