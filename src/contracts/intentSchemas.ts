@@ -4,7 +4,7 @@ import { type SystemConfig } from "../config/systemConfig.js";
 /** 无有效 system.yaml 时的占位，与 {@link refreshIntentResultSchemaCache} /阶段一拆分 schema 共用 */
 export const FALLBACK_SYSTEM_CONFIG: SystemConfig = {
   version: 1,
-  modules: [{ id: "empty" }],
+  intentions: [{ id: "empty" }],
   domains: [{ id: "empty" }]
 };
 
@@ -13,12 +13,12 @@ function toEnumValues(values: string[], fallback: [string, ...string[]]): [strin
   return cleaned.length > 0 ? (cleaned as [string, ...string[]]) : fallback;
 }
 
-/** 供 IntentType、阶段一 intent 等从 module 列表 + chitchat/unknown 构造枚举 */
+/** 供 IntentType、阶段一 intent 等从 intention 列表 + chitchat/unknown 构造枚举 */
 export function buildIntentTypeValues(config: SystemConfig): [string, ...string[]] {
-  const moduleIds = (config.modules ?? [])
-    .map((m) => (typeof m.id === "string" ? m.id.trim() : ""))
+  const intentionIds = (config.intentions ?? [])
+    .map((i) => (typeof i.id === "string" ? i.id.trim() : ""))
     .filter(Boolean);
-  return toEnumValues([...moduleIds, "chitchat", "unknown"], ["unknown"]);
+  return toEnumValues([...intentionIds, "chitchat", "unknown"], ["unknown"]);
 }
 
 /** facets 含 business 的 domain id；与阶段一 segmentId、IntentResult 对齐 */

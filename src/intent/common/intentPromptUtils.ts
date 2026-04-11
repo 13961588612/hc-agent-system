@@ -2,9 +2,9 @@ import {
   getSystemConfig,
   listBusinessDomains,
   listDomains,
-  listModules,
+  listIntentions,
   type DomainEntry,
-  type ModuleEntry
+  type IntentionEntry
 } from "../../config/systemConfig.js";
 import { getIntentSeparateOutputParser } from "../separate/intentSeparateOutputParser.js";
 
@@ -39,12 +39,12 @@ export function resetIntentPromptSystemContextCache(): void {
   intentPromptSystemContextCache = undefined;
 }
 
-function formatModuleLine(m: ModuleEntry): string {
+function formatIntentionLine(i: IntentionEntry): string {
   const parts: string[] = [];
-  if (m.title) parts.push(`标题：${m.title}`);
-  if (m.description) parts.push(`说明：${m.description}`);
+  if (i.title) parts.push(`标题：${i.title}`);
+  if (i.description) parts.push(`说明：${i.description}`);
   const tail = parts.length ? ` | ${parts.join(" | ")}` : "";
-  return `  - systemModuleId="${m.id}"${tail}`;
+  return `  - intentionId="${i.id}"${tail}`;
 }
 
 function formatBusinessSegmentLine(d: DomainEntry): string {
@@ -67,7 +67,7 @@ function formatOtherDomainLine(d: DomainEntry): string {
 
 /**
  * 将当前 `system.yaml` 摘要注入意图提示词：
- * - module → systemModuleId
+ * - intention（根键，载入后为 modules）→ systemModuleId
  * - domains（facets 含 business）→ segmentId
  * - 其余 domains → domainId / facets 参考
  * - skills 相关：显式列出 facets 含 skills 的域，否则给工具参数约定说明
@@ -79,11 +79,11 @@ async function formatSystemContextForIntentPrompt(): Promise<string> {
       ? String(cfg.version)
       : "—";
 
-  const modules = await listModules();
-  const moduleBlock =
-    modules.length > 0
-      ? modules.map(formatModuleLine).join("\n")
-      : `  - （未配置 module：systemModuleId 须与 intents 语义一致，可用 data_query / data_analysis / knowledge_qa 等稳定 id）`;
+  const intentions = await listIntentions();
+  const intentionBlock =
+    intentions.length > 0
+      ? intentions.map(formatIntentionLine).join("\n")
+      : `  - （未配置 intention：intentionId 须与 intents 语义一致，可用 query / analysis等与配置 id 一致）`;
 
   const business = await listBusinessDomains();
   const businessBlock =
@@ -114,8 +114,8 @@ async function formatSystemContextForIntentPrompt(): Promise<string> {
 
   return `【当前系统信息】（来自 config/system.yaml）
 - 配置 version：${ver}
-- 系统模块（systemModuleId）
-${moduleBlock}
+- 意图模块（system.yaml intention → systemModuleId）
+${intentionBlock}
 - 业务分段（segmentId，domains 且 facets 含 business）
 ${businessBlock}${otherBlock}${skillsBlock}`;
 }

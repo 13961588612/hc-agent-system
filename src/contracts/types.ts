@@ -1,6 +1,5 @@
 import z from "zod";
 import type { EnvConfig } from "../config/envConfig.js";
-import { SystemModuleIdSchema } from "./SystemSchema.js";
 
 export type { IntentResult } from "./intentSchemas.js";
 
@@ -231,6 +230,3 @@ export interface DataQueryResult {
   /** dataType 为 tables 时使用 */
   tables?: DataTable[];
 }
-
-
-export type SystemModuleId = z.infer<typeof SystemModuleIdSchema>;

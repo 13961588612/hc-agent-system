@@ -4,14 +4,14 @@ import {
   FALLBACK_SYSTEM_CONFIG,
 } from "../../contracts/intentSchemas.js";
 import { LocaleSchema } from "../../contracts/schemas.js";
-import { getDomainIdSchema, getModuleIdSchema } from "../../contracts/SystemSchema.js";
+import { getDomainIdSchema, getIntentionIdSchema } from "../../contracts/SystemSchema.js";
 
 /**
  * 按当前 `system.yaml` 构造阶段一拆分 schema（与 {@link buildSystemSchemas} / {@link buildIntentResultSchema} 同源数据）。
  */
 
 export function buildIntentTypeSchema() {
-  return getModuleIdSchema().describe("意图类型");
+  return getIntentionIdSchema().describe("意图类型");
 }
 
 export function buildIntentSeparateItemSchema() {
@@ -21,7 +21,7 @@ export function buildIntentSeparateItemSchema() {
     semanticTaskBrief: z.string().min(1).describe("无语义负载的任务简述：说明任务类型与数据范畴；比如按手机号查询一段时间内的会员消费记录和会员当前积分余额；不含手机号/会员号/订单号等具体值，具体值放 resolvedSlots"),
     confidence: z.number().optional().describe("模型对该子意图的置信度，建议 0～1"),
     resolvedSlots: z.record(z.string(), z.unknown()).optional().describe("已解析槽位，键名建议 snake_case"),
-    moduleId: getModuleIdSchema().describe("模块 id"),
+    intentionId: getIntentionIdSchema().describe("意图唯一标识"),
     domainId: getDomainIdSchema().describe("域 id"),
   });
 }

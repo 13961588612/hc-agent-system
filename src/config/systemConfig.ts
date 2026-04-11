@@ -2,8 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
-export interface ModuleEntry {
-  /** 唯一 id，可与 systemModuleId 对齐 */
+export interface IntentionEntry {
   id: string;
   /** 展示用短标题 */
   title?: string;
@@ -23,22 +22,22 @@ export interface DomainEntry {
 export interface SystemConfig {
   /** 配置格式版本，便于迁移 */
   version?: number;
-  modules: ModuleEntry[];
+  intentions: IntentionEntry[];
   domains: DomainEntry[];
 }
 
 let singleton: SystemConfig;
 let initialized: boolean = false;
 
-function normalizeModule(
+function normalizeIntention(
   raw: unknown,
   index: number
-): ModuleEntry | null {
+): IntentionEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === "string" ? o.id.trim() : "";
   if (!id) {
-    console.warn(`[SystemConfig] modules[${index}] 缺少 id，已跳过`);
+    console.warn(`[SystemConfig] intentions[${index}] 缺少 id，已跳过`);
     return null;
   }
   return {
@@ -71,7 +70,7 @@ function normalizeDomain(raw: unknown, index: number): DomainEntry | null {
  * 已冻结，请勿就地修改；问数域枚举见 {@link listQuerySegmentIds}（空 domains 时仍为 `["other"]`）。
  */
 const EMPTY_SYSTEM_CONFIG = Object.freeze({
-  modules: Object.freeze([] as ModuleEntry[]),
+  intentions: Object.freeze([] as IntentionEntry[]),
   domains: Object.freeze([] as DomainEntry[])
 }) as unknown as SystemConfig;
 
@@ -83,20 +82,15 @@ function parseRoot(parsed: unknown): SystemConfig | null {
       ? root.version
       : undefined;
 
-  const moduleRaw = root.module;
-  const systemModuleRaw = root["system-module"];
-  const modulesRaw = Array.isArray(moduleRaw)
-    ? moduleRaw
-    : Array.isArray(systemModuleRaw)
-      ? systemModuleRaw
-      : undefined;
+  const intentionRaw = root.intention;
+  const intentionsRaw = Array.isArray(intentionRaw) ? intentionRaw : undefined;
   const domainsRaw = Array.isArray(root.domains) ? root.domains : root.segments;
 
-  const modules: ModuleEntry[] = [];
-  if (Array.isArray(modulesRaw)) {
-    modulesRaw.forEach((row, i) => {
-      const d = normalizeModule(row, i);
-      if (d) modules.push(d);
+  const intentions: IntentionEntry[] = [];
+  if (Array.isArray(intentionsRaw)) {
+    intentionsRaw.forEach((row, i) => {
+      const d = normalizeIntention(row, i);
+      if (d) intentions.push(d);
     });
   }
 
@@ -110,7 +104,7 @@ function parseRoot(parsed: unknown): SystemConfig | null {
 
   return {
     version,
-    modules,
+    intentions,
     domains
   };
 }
@@ -148,7 +142,7 @@ function initSystemConfig(systemConfig: SystemConfig): void {
   initialized = true;
 }
 
-/** 由 {@link initSystemConfig} 在启动时注入；未初始化或加载失败时为冻结的空壳（modules/domains 皆空） */
+/** 由 {@link initSystemConfig} 在启动时注入；未初始化或加载失败时为冻结的空壳（intentions/domains 皆空） */
 export async function getSystemConfig(): Promise<SystemConfig> {
   if(!initialized) {
     const config = await loadSystemConfigFromFile();
@@ -168,9 +162,9 @@ export function resetSystemConfigForTests(): void {
   initialized = false;
 }
 
-export async function getModuleEntry(id: string): Promise<ModuleEntry | null> {
+export async function getIntentionEntry(id: string): Promise<IntentionEntry | null> {
   const config = await getSystemConfig();
-  return config.modules.find((m) => m.id === id) ?? null;
+  return config.intentions.find((i) => i.id === id) ?? null;
 }
 
 export async function getDomainEntry(id: string): Promise<DomainEntry | null> {
@@ -178,9 +172,9 @@ export async function getDomainEntry(id: string): Promise<DomainEntry | null> {
   return config.domains.find((d) => d.id === id) ?? null;
 }
 
-export async function listModules(): Promise<ModuleEntry[]> {
+export async function listIntentions(): Promise<IntentionEntry[]> {
   const config = await getSystemConfig();
-  return config.modules;
+  return config.intentions;
 }
 
 export async function listDomains(): Promise<DomainEntry[]> {

@@ -19,13 +19,13 @@ const MEMBER_DB_KEY = "member";
 
 /** LLM 注入 SQL 等无结构化域时的默认 `queryDomain`（取当前配置下首个问数 segment id） */
 function defaultQueryDomainTag(): QueryDomain {
-  const ids = listQuerySegmentIds(getSystemConfig());
+  const ids = await listBusinessDomains();
   return ids[0] ?? "other";
 }
 
 /** 关键词猜意图失败时的默认域：优先 `other`，否则首个 segment */
 function fallbackQueryDomainFromConfig(): QueryDomain {
-  const ids = listQuerySegmentIds(getSystemConfig());
+  const ids = await listBusinessDomains();
   if (ids.includes("other")) return "other";
   return ids[0] ?? "other";
 }

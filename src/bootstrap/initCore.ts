@@ -41,9 +41,9 @@ export async function initCore(): Promise<InitCoreResult> {
   refreshSystemSchemaCache(sys);
   refreshIntentSeparateSchemaCache(sys);
   console.log(
-    `[System] 模块/域已加载: modules=${sys.modules.length} domains=${sys.domains.length} (version=${sys.version ?? "—"})`
+    `[System] 意图/域已加载: intentions=${sys.intentions.length} domains=${sys.domains.length} (version=${sys.version ?? "—"})`
   );
-  if (sys.modules.length === 0 && sys.domains.length === 0) {
+  if (sys.intentions.length === 0 && sys.domains.length === 0) {
     console.warn(
       "[System] 当前无有效 system 配置（请放置 config/system.yaml 或设置 SYSTEM_CONFIG 指向有效文件）"
     );

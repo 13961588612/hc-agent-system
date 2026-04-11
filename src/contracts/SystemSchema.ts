@@ -3,7 +3,7 @@ import { type SystemConfig } from "../config/systemConfig.js";
 
 const FALLBACK_CONFIG: SystemConfig = {
   version: 1,
-  modules: [{ id: "other" }],
+  intentions: [{ id: "other" }],
   domains: [{ id: "other" }]
 };
 
@@ -13,8 +13,8 @@ function toEnumValues(values: string[], fallback: [string, ...string[]]): [strin
 }
 
 export function buildSystemSchemas(config: SystemConfig) {
-  const moduleIdValues = toEnumValues(
-    (config.modules ?? []).map((m) => m.id),
+  const intentionIdValues = toEnumValues(
+    (config.intentions ?? []).map((i) => i.id),
     ["query"]
   );
   const domainIdValues = toEnumValues(
@@ -26,11 +26,11 @@ export function buildSystemSchemas(config: SystemConfig) {
     ["business", "skills"]
   );
 
-  const ModuleIdSchema = z.enum(moduleIdValues);
+  const IntentionIdSchema = z.enum(intentionIdValues);
   const DomainIdSchema = z.enum(domainIdValues);
   const FacetSchema = z.enum(facetValues);
-  const ModuleEntrySchema = z.object({
-    id: ModuleIdSchema,
+  const IntentionEntrySchema = z.object({
+    id: IntentionIdSchema,
     title: z.string().optional(),
     description: z.string().optional()
   });
@@ -42,15 +42,15 @@ export function buildSystemSchemas(config: SystemConfig) {
   });
   const SystemConfigSchema = z.object({
     version: z.number().optional(),
-    module: z.array(ModuleEntrySchema).optional(),
+    intentions: z.array(IntentionEntrySchema).optional(),
     domains: z.array(DomainEntrySchema).optional()
   });
 
   return {
-    ModuleIdSchema,
+    IntentionIdSchema,
     DomainIdSchema,
     FacetSchema,
-    ModuleEntrySchema,
+    IntentionEntrySchema,
     DomainEntrySchema,
     SystemConfigSchema
   };
@@ -66,10 +66,10 @@ export function getSystemSchemas() {
   return cached;
 }
 
-export const getModuleIdSchema = () => cached.ModuleIdSchema;
+export const getIntentionIdSchema = () => cached.IntentionIdSchema;
 export const getDomainIdSchema = () => cached.DomainIdSchema;
 export const getFacetSchema = () => cached.FacetSchema;
-export const getModuleEntrySchema = () => cached.ModuleEntrySchema;
+export const getIntentionEntrySchema = () => cached.IntentionEntrySchema;
 export const getDomainEntrySchema = () => cached.DomainEntrySchema;
 export const getSystemConfigSchema = () => cached.SystemConfigSchema;
 
