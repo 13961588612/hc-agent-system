@@ -10,7 +10,7 @@ import type { Runnable } from "@langchain/core/runnables";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getModel } from "../../model/index.js";
 import { log } from "../../lib/log/log.js";
-import { listDomains } from "../../config/systemConfig.js";
+import { getSystemConfigSync, listQuerySegmentIds } from "../../config/systemConfig.js";
 
 /** 单任务内 LLM 注入 SQL 条数上限 */
 const MAX_SQL_QUERIES = 10;
@@ -19,13 +19,13 @@ const MEMBER_DB_KEY = "member";
 
 /** LLM 注入 SQL 等无结构化域时的默认 `queryDomain`（取当前配置下首个问数 segment id） */
 function defaultQueryDomainTag(): QueryDomain {
-  const ids = await listBusinessDomains();
+  const ids = listQuerySegmentIds(getSystemConfigSync());
   return ids[0] ?? "other";
 }
 
 /** 关键词猜意图失败时的默认域：优先 `other`，否则首个 segment */
 function fallbackQueryDomainFromConfig(): QueryDomain {
-  const ids = await listBusinessDomains();
+  const ids = listQuerySegmentIds(getSystemConfigSync());
   if (ids.includes("other")) return "other";
   return ids[0] ?? "other";
 }
@@ -288,7 +288,7 @@ builder.addNode("domain_router", (state: DataQueryState) => {
   }
 
   const text = state.input.userInput;
-  const segments = listDomains().map(d => d.id);
+  const segments = listQuerySegmentIds(getSystemConfigSync());
   let queryDomain: QueryDomain = fallbackQueryDomainFromConfig();
   let queryIntent = "unknown";
 

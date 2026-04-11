@@ -190,3 +190,22 @@ export async function listBusinessDomains(): Promise<DomainEntry[]> {
   );
 }
 
+/**
+ * 问数 `queryDomain` 可用的 segment id：`domains[].id`；空配置时为 `["other"]`。
+ */
+export function listQuerySegmentIds(config: SystemConfig): string[] {
+  const ids = config.domains.map((d) => d.id).filter(Boolean);
+  if (ids.length === 0) return ["other"];
+  return ids;
+}
+
+/**
+ * 同步读取已加载的 system 配置。未初始化前返回空壳（与首轮 `getSystemConfig` 前一致）。
+ */
+export function getSystemConfigSync(): SystemConfig {
+  if (!initialized) {
+    return EMPTY_SYSTEM_CONFIG;
+  }
+  return singleton;
+}
+
