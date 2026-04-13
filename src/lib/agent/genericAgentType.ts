@@ -8,7 +8,7 @@ import type { RunnableToolLike } from "@langchain/core/runnables";
 import type { z } from "zod/v3";
 
 /**
- * 与 `langchain` 的 {@link createAgent} / `ToolNode` 一致：可执行 Tool 实例（如 `tool(...)` 返回值）。
+ * 与 LangGraph {@link ToolNode} / `bindTools` 一致：可执行 Tool 实例（如 `tool(...)` 返回值）。
  * 若仅有 name/description/schema，需先在业务侧用 `tool()` 包装再传入。
  */
 export type GenericAgentTool =
@@ -23,8 +23,7 @@ export interface GenericAgentRuntimeConfig {
   /** 业务任务 id，写入 `config.configurable.task_id`，便于节点或工具内读取 */
   taskId?: string;
   /**
-   * 为 true 时通过中间件在每次模型调用上注入 `modelSettings.strict`，使内部 `bindTools` 等价于 `{ strict: true }`
-   * （OpenAI 系与结构化输出等组合时常见要求；不可预绑定模型，因 `createAgent` 禁止已绑定 tools 的 model）
+   * 为 true 时对模型执行 `bindTools(tools, { strict: true })`（OpenAI 系与结构化输出等组合时常见要求）。
    */
   strictFunctionTool?: boolean;
   /** LangGraph 单轮 invoke 的递归/步数上限，防止工具环 */
@@ -34,7 +33,7 @@ export interface GenericAgentRuntimeConfig {
 export interface GenericAgentParams<TResult = unknown> {
   /** 图/追踪展示名 */
   name: string;
-  /** 系统提示，对应 `createAgent` 的 `systemPrompt` */
+  /** 系统提示：每轮 LLM 调用前以 `SystemMessage` 置于消息列表首部 */
   systemPrompt: string;
   /** 可选：给上层 supervisor / 编排说明本 agent 职责 */
   description?: string;
@@ -46,11 +45,12 @@ export interface GenericAgentParams<TResult = unknown> {
    */
   resultSchema?: z.ZodType<TResult>;
   /**
-   * 与 `resultSchema` 配套，传给 `providerStrategy` 的 `strict`
-   * （需模型支持原生/结构化输出路径）
+   * 与 `resultSchema` 配套，传给 `withStructuredOutput` 的 `strict`（需模型支持结构化输出路径）。
    */
   structuredOutputStrict?: boolean;
-  /** 工具节点图版本，见 `createAgent` 的 `version`（默认本模板为 `v1` 以保持与原行为一致） */
+  /**
+   * 工具节点路由：`v1` 单节点内并行执行本轮全部 tool_calls；`v2` 用 `Send` 将各 tool_call 分发到 `ToolNode`。
+   */
   toolNodeVersion?: "v1" | "v2";
   runtime?: GenericAgentRuntimeConfig;
 }
