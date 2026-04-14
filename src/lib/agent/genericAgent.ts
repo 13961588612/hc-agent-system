@@ -1,9 +1,16 @@
 import type { BaseMessage } from "@langchain/core/messages";
-import { AIMessage, HumanMessage, SystemMessage, isAIMessage } from "@langchain/core/messages";
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+  ToolMessage,
+  isAIMessage
+} from "@langchain/core/messages";
 import { StructuredOutputParser } from "@langchain/core/output_parsers";
 import type { LanguageModelLike } from "@langchain/core/language_models/base";
 import type { RunnableConfig } from "@langchain/core/runnables";
 import { RunnableBinding, RunnableSequence } from "@langchain/core/runnables";
+import { randomUUID } from "node:crypto";
 import type { InteropZodType } from "@langchain/core/utils/types";
 import {
   Annotation,
@@ -12,9 +19,12 @@ import {
   MessagesAnnotation,
   Send,
   START,
-  StateGraph
+  StateGraph,
+  isCommand,
+  isGraphInterrupt
 } from "@langchain/langgraph";
 import { ToolNode, type ToolNodeOptions } from "@langchain/langgraph/prebuilt";
+import { TOOL_HANDLERS } from "../tools/tools.js";
 import type {
   GenericAgentParams,
   GenericAgentRunInput,
@@ -66,20 +76,154 @@ function bindToolsToModel(
   return bindTools.call(llm, toolList, strictFunctionTool === true ? { strict: true } : undefined) as LanguageModelLike;
 }
 
+/** 与 `intentToolRunner` 一致：参数键排序后 JSON，用于「同工具 + 同参」去重 */
+function toolArgsCacheKey(args: Record<string, unknown>): string {
+  const sorted: Record<string, unknown> = {};
+  for (const k of Object.keys(args).sort()) {
+    sorted[k] = args[k];
+  }
+  return JSON.stringify(sorted);
+}
+
+/**
+ * 写入 `invoke` 的 `config.configurable`，使工具结果缓存仅在「单次图 invoke」内跨 agent↔tools 多轮共享；
+ * 新一次 `runGenericAgent` 会换会话 id，避免与上一轮请求串缓存。
+ */
+export const GENERIC_AGENT_TOOL_DEDUPE_SESSION_KEY = "__generic_agent_tool_dedupe_session";
+
+type CachedToolPayload = { status: "success" | "error"; content: string; name?: string };
+
+type LangGraphToolCall = Parameters<ToolNode["runTool"]>[0];
+type LangGraphToolRunResult = Awaited<ReturnType<ToolNode["runTool"]>>;
+
 type WithStructuredRoute = typeof END | "tools" | "generate_structured_response" | Send[];
 type MessagesOnlyRoute = typeof END | "tools" | Send[];
 
 /**
- * LangGraph `ToolNode` 的薄封装：统一节点名、错误策略，业务可继承并覆盖 {@link ToolNode.runTool} 做日志/审计等。
+ * LangGraph `ToolNode` 的薄封装：统一节点名、错误策略；
+ * 参考意图阶段：对「同工具 + 同参」做结果缓存；**在 `TOOL_HANDLERS` 中有登记的工具名**走 `TOOL_HANDLERS` 执行（与 `intentToolRunner` 一致），其余回退基类 `runTool`（LangChain `tool.invoke`）。
  */
 export class GenericAgentToolNode extends ToolNode {
-  constructor(tools: GenericAgentTool[], options?: ToolNodeOptions & { agentName?: string }) {
-    const { agentName, ...rest } = options ?? {};
+  private readonly useToolResultCache: boolean;
+  private readonly cacheToolResults: boolean;
+  private readonly crossRoundCache = new Map<string, string>();
+  private dedupeSession: string | undefined;
+  private activeToolResultCache = new Map<string, string>();
+
+  constructor(
+    tools: GenericAgentTool[],
+    options?: ToolNodeOptions & {
+      agentName?: string;
+      /** 是否读取「同工具 + 同参」缓存，默认 true */
+      useToolResultCache?: boolean;
+      /** 是否写入上述缓存，默认 true */
+      cacheToolResults?: boolean;
+    }
+  ) {
+    const { agentName, useToolResultCache, cacheToolResults, ...rest } = options ?? {};
     super(tools, {
       name: rest.name ?? (agentName != null ? `${agentName}_tools` : "generic_agent_tools"),
       tags: rest.tags,
       handleToolErrors: rest.handleToolErrors ?? true
     });
+    this.useToolResultCache = useToolResultCache !== false;
+    this.cacheToolResults = cacheToolResults !== false;
+  }
+
+  override async run(input: unknown, config?: RunnableConfig): Promise<unknown> {
+    const session = config?.configurable?.[GENERIC_AGENT_TOOL_DEDUPE_SESSION_KEY] as
+      | string
+      | undefined;
+    if (session != null && session !== "") {
+      if (this.dedupeSession !== session) {
+        this.crossRoundCache.clear();
+        this.dedupeSession = session;
+      }
+      this.activeToolResultCache = this.crossRoundCache;
+    } else {
+      this.activeToolResultCache = new Map();
+    }
+    return super.run(input, config ?? {});
+  }
+
+  override async runTool(
+    call: LangGraphToolCall,
+    config: RunnableConfig
+  ): Promise<LangGraphToolRunResult> {
+    const name = call.name;
+    const args = (call.args ?? {}) as Record<string, unknown>;
+    const dedupeKey = `${name}\0${toolArgsCacheKey(args)}`;
+    const cached =
+      this.useToolResultCache ? this.activeToolResultCache.get(dedupeKey) : undefined;
+    if (cached !== undefined) {
+      try {
+        const p = JSON.parse(cached) as CachedToolPayload;
+        return new ToolMessage({
+          status: p.status,
+          name: p.name ?? name,
+          content: p.content,
+          tool_call_id: call.id ?? ""
+        }) as LangGraphToolRunResult;
+      } catch {
+        return new ToolMessage({
+          status: "success",
+          name,
+          content: cached,
+          tool_call_id: call.id ?? ""
+        }) as LangGraphToolRunResult;
+      }
+    }
+
+    const putToolResultInCache = (msg: ToolMessage) => {
+      if (!this.cacheToolResults) return;
+      const content =
+        typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+      const status = (msg.status === "error" ? "error" : "success") as CachedToolPayload["status"];
+      this.activeToolResultCache.set(
+        dedupeKey,
+        JSON.stringify({
+          status,
+          content,
+          name: msg.name ?? name
+        } satisfies CachedToolPayload)
+      );
+    };
+
+    const handler = TOOL_HANDLERS[name];
+    if (handler) {
+      try {
+        const raw = await handler(args);
+        const out = new ToolMessage({
+          status: "success",
+          name,
+          content: typeof raw === "string" ? raw : String(raw),
+          tool_call_id: call.id ?? ""
+        });
+        putToolResultInCache(out);
+        return out as LangGraphToolRunResult;
+      } catch (e) {
+        if (!this.handleToolErrors) throw e;
+        if (isGraphInterrupt(e)) throw e;
+        const errText = e instanceof Error ? e.message : String(e);
+        const out = new ToolMessage({
+          status: "error",
+          name,
+          content: `Error: ${errText}\n Please fix your mistakes.`,
+          tool_call_id: call.id ?? ""
+        });
+        putToolResultInCache(out);
+        return out as LangGraphToolRunResult;
+      }
+    }
+
+    const out = await super.runTool(call, config);
+    if (isCommand(out)) {
+      return out;
+    }
+    if (out instanceof ToolMessage) {
+      putToolResultInCache(out);
+    }
+    return out;
   }
 }
 
@@ -124,7 +268,7 @@ export function createGenericAgentGraph<TResult = unknown>(
     toolNodeVersion,
     runtime = {}
   } = params;
-  const { threadId, strictFunctionTool } = runtime;
+  const { threadId, strictFunctionTool, useToolResultCache, cacheToolResults } = runtime;
 
   const checkpointer = threadId?.trim() ? new MemorySaver() : undefined;
   const version = toolNodeVersion ?? "v1";
@@ -137,7 +281,11 @@ export function createGenericAgentGraph<TResult = unknown>(
   const StateAnnotation = buildGenericAgentStateAnnotation();
   type AgentState = typeof StateAnnotation.State;
 
-  const toolNode = new GenericAgentToolNode(tools, { agentName: name });
+  const toolNode = new GenericAgentToolNode(tools, {
+    agentName: name,
+    useToolResultCache,
+    cacheToolResults
+  });
 
   const callAgent = async (state: AgentState, config: RunnableConfig) => {
     const msgs = [systemMessage, ...state.messages];
@@ -247,7 +395,9 @@ export async function runGenericAgent<TResult = unknown>(
 
   const messages = input.messages ?? [new HumanMessage(input.userInput)];
 
-  const configurable: Record<string, string> = {};
+  const configurable: Record<string, string> = {
+    [GENERIC_AGENT_TOOL_DEDUPE_SESSION_KEY]: randomUUID()
+  };
   if (threadId?.trim()) {
     configurable.thread_id = threadId.trim();
   }
@@ -257,7 +407,7 @@ export async function runGenericAgent<TResult = unknown>(
 
   const invokeConfig: RunnableConfig = {
     recursionLimit,
-    ...(Object.keys(configurable).length > 0 ? { configurable } : {})
+    configurable
   };
 
   const state = (await agent.invoke({ messages }, invokeConfig)) as {

@@ -3,7 +3,7 @@ import { SelectedSkillKindSchema } from "../../contracts/intentSchemas.js";
 import {
   getIntentSeparateItemSchema,
   getIntentSeparateResultSchema,
-} from "../separate/intentSeparateSchema.js";
+} from "../../../separate/intentSeparateSchema.js";
 
 /** 与 `buildIntentResultSchema` 内 followUpAction 对齐，供规划层复用 */
 const FollowUpActionSchema = z.object({

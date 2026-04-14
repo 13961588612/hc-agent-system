@@ -28,6 +28,15 @@ export interface GenericAgentRuntimeConfig {
   strictFunctionTool?: boolean;
   /** LangGraph 单轮 invoke 的递归/步数上限，防止工具环 */
   recursionLimit?: number;
+  /**
+   * 为 false 时禁用「同工具 + 同参」缓存**读取**，每次均重新执行工具（默认 true，与当前行为一致）。
+   * 与 `cacheToolResults` 可独立组合。
+   */
+  useToolResultCache?: boolean;
+  /**
+   * 为 false 时禁用工具结果**写入**缓存（默认 true）。若仅关闭写入而保留读取，一般仅在同一会话内其它逻辑预填缓存时有意义。
+   */
+  cacheToolResults?: boolean;
 }
 
 export interface GenericAgentParams<TResult = unknown> {
