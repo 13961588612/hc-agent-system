@@ -1,4 +1,4 @@
-import type { IntentSeparateResult } from "../../../separate/IntentSeparateType.js";
+import type { IntentSeparateResult } from "../separate/IntentSeparateType.js";
 import type { IntentResult } from "../../contracts/intentSchemas.js";
 
 /** 将阶段一拆分结果规范为 IntentResult 可用的根级 `replyLocale`。 */

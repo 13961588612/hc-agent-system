@@ -1,15 +1,15 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import type { OrchestratorState } from "../src/contracts/schemas.js";
+import type { OrchestratorState } from "../../contracts/schemas.js";
 import {
   getIntentLlmTimeoutMs,
   shouldLogIntentRawLlm
-} from "../src/config/intentPolicy.js";
-import { log } from "../src/lib/log/log.js";
+} from "../../config/intentPolicy.js";
+import { log } from "../../lib/log/log.js";
 import { getIntentSeparateOutputParser } from "./intentSeparateOutputParser.js";
-import { buildIntentSeparateInstruction } from "../src/intent/common/intentPromptUtils.js";
-import { allTools } from "../src/lib/tools/tools.js";
-import { getModelNoThinking,getModel } from "../src/model/index.js";
-import { emitProgressByConfig } from "../src/graph/orchestrator/progressReporter.js";
+import { buildIntentSeparateInstruction } from "../common/intentPromptUtils.js";
+import { allTools } from "../../lib/tools/tools.js";
+import { getModelNoThinking,getModel } from "../../model/index.js";
+import { emitProgressByConfig } from "../../graph/orchestrator/progressReporter.js";
 import { IntentSeparateResult } from "./IntentSeparateType.js";
 
 /** LLM 原始消息（仅在使用「手动 tool 循环」解析路径时需要） */

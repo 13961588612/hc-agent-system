@@ -5,7 +5,7 @@ import { applyIntentDeterministicPlanning } from "../intent/plan/planner.js";
 import {
   applyIntentSeparate,
   type IntentLlmRawMessage
-} from "../../separate/intentSeparate.js";
+} from "../intent/separate/intentSeparate.js";
 import { IntentSeparateResult } from "../intent/plan/index.js";
 
 /** 失败兜底：blocked 意图结果 */

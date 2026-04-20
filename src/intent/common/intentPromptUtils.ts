@@ -7,7 +7,7 @@ import {
   type IntentionEntry
 } from "../../config/systemConfig.js";
 import { getDomainIdDescription, getIntentionIdDescription } from "../../contracts/SystemSchema.js";
-import { getIntentSeparateOutputParser } from "../../../separate/intentSeparateOutputParser.js";
+import { getIntentSeparateOutputParser } from "../separate/intentSeparateOutputParser.js";
 
 /**
  * 与业务 Guide 文档 id 对齐，仅用于 invoke_skill 拦截（避免重复拉取）；

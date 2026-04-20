@@ -1,10 +1,10 @@
 import { z } from "zod/v3";
-import type { SystemConfig } from "../src/config/systemConfig.js";
+import type { SystemConfig } from "../../config/systemConfig.js";
 import {
   FALLBACK_SYSTEM_CONFIG,
-} from "../src/contracts/intentSchemas.js";
-import { LocaleSchema } from "../src/contracts/schemas.js";
-import { getDomainIdDescription, getDomainIdSchema, getIntentionIdDescription, getIntentionIdSchema } from "../src/contracts/SystemSchema.js";
+} from "../../contracts/intentSchemas.js";
+import { LocaleSchema } from "../../contracts/schemas.js";
+import { getDomainIdDescription, getDomainIdSchema, getIntentionIdDescription, getIntentionIdSchema } from "../../contracts/SystemSchema.js";
 
 /**
  * 按当前 `system.yaml` 构造阶段一拆分 schema（与 {@link buildSystemSchemas} / {@link buildIntentResultSchema} 同源数据）。

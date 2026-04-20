@@ -1,5 +1,5 @@
 import z from "zod";
-import { LocaleSchema } from "../src/contracts/schemas.js";
+import { LocaleSchema } from "../../contracts/schemas.js";
 
 export type IntentSeparateItem = {
   intent: string;

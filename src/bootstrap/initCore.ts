@@ -11,7 +11,7 @@ import {
 } from "../config/channelReplyConfig.js";
 import { refreshIntentResultSchemaCache } from "../contracts/intentSchemas.js";
 import { refreshSystemSchemaCache } from "../contracts/SystemSchema.js";
-import { refreshIntentSeparateSchemaCache } from "../../separate/intentSeparateSchema.js";
+import { refreshIntentSeparateSchemaCache } from "../intent/separate/intentSeparateSchema.js";
 import { getRuntimeContext } from "../config/runtimeContext.js";
 import { defaultGuidesDir, discoverAndRegisterGuides } from "../lib/guides/scanGuides.js";
 import { discoverAndRegisterIntentRules } from "../intent/rule/scanIntentRules.js";

@@ -1,26 +1,13 @@
 import type { IntentResult } from "../../contracts/intentSchemas.js";
 import { getIntentResultSchema } from "../../contracts/intentSchemas.js";
-import type { GuideEntry } from "../../lib/guides/types.js";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { getIntentLlmTimeoutMs } from "../../config/intentPolicy.js";
-import { log } from "../../lib/log/log.js";
-import { getModel, getModelNoThinking } from "../../model/index.js";
-import {
-  ClarificationToneResultSchema,
-  getClarificationToneOutputParser
-} from "./clarificationToneOutputParser.js";
+import { getIntentLlmTimeoutMs, getIntentToolMaxRounds } from "../../config/intentPolicy.js";
+import { runGenericAgent } from "../../lib/agent/genericAgent.js";
+import type { GenericAgentTool } from "../../lib/agent/genericAgentType.js";
+import { allTools } from "../../lib/tools/tools.js";
+import { getModel } from "../../model/index.js";
 import { buildIntentTaskStepsRulesInline } from "../common/intentPromptUtils.js";
-import {
-  getReusableStepTemplate,
-  saveReusableStepTemplate
-} from "./planReuseStore.js";
-import {
-  dotProduct,
-  fetchTextEmbedding,
-  l2Normalize
-} from "../common/textEmbedding.js";
-import { buildSeedIntentResultFromIntentSeparate } from "../../separate/intentSeparateSeed.js";
-import type { IntentSeparateResult } from "../../separate/IntentSeparateType.js";
+import { buildSeedIntentResultFromIntentSeparate } from "./intentSeparateSeed.js";
+import type { IntentSeparateResult } from "../separate/IntentSeparateType.js";
 
 function toStr(v: unknown): string | undefined {
   if (v === undefined || v === null) return undefined;
@@ -46,33 +33,18 @@ export async function applyIntentDeterministicPlanning(
   );
 }
 
-/**
- * 对 data_query 做程序化规划回写：
- * - 统一生成/补齐 planningTasks 与 skillSteps
- * - 程序判定 required/provided/missing 与 executable
- * - 统一回写 planPhase / needsClarification / clarificationQuestion
- * - 对 semanticTaskBrief 做嵌入，与缓存向量算相似度写入 semanticTaskBriefVectorSim
- */
+
 export async function applyDeterministicDataQueryPlanning(
   intent: IntentResult,
   userInput: string
 ): Promise<IntentResult> {
   try {
-    // const programmatic = await applyProgrammaticPlanningRewrite(intent, userInput);
-    // const withTone =
-    //   programmatic.uniqueMissing.length > 0
-    //     ? await applyLlmHumorousPlanning(programmatic.intent, programmatic.uniqueMissing)
-    //     : programmatic.intent;
-    // return withTone;
     return await applyLlmPlanningRewrite(intent, userInput, null);
   } catch (error) {
     return await applyLlmPlanningRewrite(intent, userInput, error);
   }
 }
-/**
- * 程序化规划失败时的 LLM 规划回写兜底。
- * 说明：当前实现为“LLM 风格回写”，不依赖外部模型调用，避免在失败路径引入新的不确定性。
- */
+
 async function applyLlmPlanningRewrite(
   intent: IntentResult,
   userInput: string,
@@ -131,8 +103,7 @@ async function tryBuildPlanByExternalModel(
   error?: unknown
 ): Promise<IntentResult | undefined> {
   const errMsg = toStr(error instanceof Error ? error.message : error) ?? "unknown_error";
-  const model = getModel();
-  const systemPrompt = `你是 data_query 任务拆解规划器。必须使用工具 list_skills_by_domain_segment，查看skillId对应的skill信息，并选择合适的skillId。
+  const systemPrompt = `你是 data_query 任务拆解规划器。必须使用工具 find_skills（按 domainId 列候选）与 invoke_skill（按 skillId 查看详情），辅助选定 skill；最终由结构化输出返回完整 IntentResult。
 ${buildIntentTaskStepsRulesInline()}`;
   const userPrompt = JSON.stringify(
     {
@@ -143,33 +114,30 @@ ${buildIntentTaskStepsRulesInline()}`;
     null,
     2
   );
-  const raw = await model.invoke([
-    new SystemMessage(systemPrompt),
-    new HumanMessage(userPrompt)
-  ]);
-  const parsed = parseModelJsonContent((raw as { content?: unknown }).content);
-  if (!parsed) return undefined;
-  return getIntentResultSchema().parse(parsed);
-}
-
-function parseModelJsonContent(content: unknown): unknown {
-  if (typeof content !== "string") return undefined;
-  const s = content.trim();
-  if (!s) return undefined;
+  const timeoutMs = getIntentLlmTimeoutMs();
+  const toolRounds = getIntentToolMaxRounds();
   try {
-    return JSON.parse(s);
+    const { structuredResponse } = await Promise.race([
+      runGenericAgent({
+        name: "data_query_planning",
+        systemPrompt,
+        model: getModel(),
+        tools: [allTools.find_skills, allTools.invoke_skill] as GenericAgentTool[],
+        resultSchema: getIntentResultSchema(),
+        structuredOutputStrict: true,
+        runtime: {
+          strictFunctionTool: true,
+          recursionLimit: 6 + toolRounds * 4
+        }
+      }, { userInput: userPrompt }),
+      new Promise<never>((_, rej) => {
+        setTimeout(() => rej(new Error("intent_llm_timeout")), timeoutMs);
+      })
+    ]);
+    if (structuredResponse == null) return undefined;
+    return getIntentResultSchema().parse(structuredResponse);
   } catch {
-    const first = s.indexOf("{");
-    const last = s.lastIndexOf("}");
-    if (first >= 0 && last > first) {
-      try {
-        return JSON.parse(s.slice(first, last + 1));
-      } catch {
-        return undefined;
-      }
-    }
     return undefined;
   }
 }
-
 

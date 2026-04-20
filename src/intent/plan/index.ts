@@ -5,8 +5,8 @@ export {
   refreshIntentSeparateSchemaCache,
   resetIntentSeparateSchemaCacheForTests,
   buildIntentSeparateSchemas
-} from "../../../separate/intentSeparateSchema.js";
-export type { IntentSeparateResult } from "../../../separate/IntentSeparateType.js";
+} from "../separate/intentSeparateSchema.js";
+export type { IntentSeparateResult } from "../separate/IntentSeparateType.js";
 export { buildSeedIntentResultFromIntentSeparate } from "./intentSeparateSeed.js";
 export {
   getReusableStepTemplate,
