@@ -47,12 +47,7 @@ function buildIntentClassifyBlockedFallback(): NonNullable<
 export async function runIntentClassifyAgent(
   state: OrchestratorState,
   config?: { configurable?: { thread_id?: string } }
-): Promise<
-  Pick<
-    OrchestratorState,
-    "intentResult" | "highLevelDomain" | "intentPlanningStats"
-  >
-> {
+): Promise<Pick<OrchestratorState, "intentResult" | "highLevelDomain">> {
   const userInput = state.input.userInput;
   let lastRawMsg: IntentLlmRawMessage | undefined;
   const tAll = Date.now();
@@ -64,16 +59,11 @@ export async function runIntentClassifyAgent(
 
   try {
     const intentSeparatePayload: IntentSeparateResult = await applyIntentSeparate(state,config);
-    const { intent: patched, stats } = await applyIntentDeterministicPlanning(
+    const patched = await applyIntentDeterministicPlanning(
       intentSeparatePayload,
       userInput
     );
-    log(
-      "[Intent]",
-      "程序化规划统计",
-      `reuseHit=${stats.reuseHit} reuseMiss=${stats.reuseMiss} generatedTasks=${stats.generatedTasks}`
-    );
-    return { intentResult: patched, intentPlanningStats: stats };
+    return { intentResult: patched };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     log(

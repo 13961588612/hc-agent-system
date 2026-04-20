@@ -19,9 +19,21 @@ import {
   fetchTextEmbedding,
   l2Normalize
 } from "../common/textEmbedding.js";
-import { buildSeedIntentResultFromIntentSeparate } from "./intentSeparateSeed.js";
-import { IntentSeparateResult } from "./index.js";
+import { buildSeedIntentResultFromIntentSeparate } from "../../separate/intentSeparateSeed.js";
+import type { IntentSeparateResult } from "../../separate/IntentSeparateType.js";
 
+function toStr(v: unknown): string | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") {
+    return String(v);
+  }
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
 
 export async function applyIntentDeterministicPlanning(
   intentSeparateResult: IntentSeparateResult,
@@ -44,22 +56,17 @@ export async function applyIntentDeterministicPlanning(
 export async function applyDeterministicDataQueryPlanning(
   intent: IntentResult,
   userInput: string
-): Promise<{ intent: IntentResult; stats: DeterministicPlanningStats }> {
-  const stats: DeterministicPlanningStats = {
-    reuseHit: 0,
-    reuseMiss: 0,
-    generatedTasks: 0
-  };
+): Promise<IntentResult> {
   try {
-    // const programmatic = await applyProgrammaticPlanningRewrite(intent, userInput, stats);
+    // const programmatic = await applyProgrammaticPlanningRewrite(intent, userInput);
     // const withTone =
     //   programmatic.uniqueMissing.length > 0
     //     ? await applyLlmHumorousPlanning(programmatic.intent, programmatic.uniqueMissing)
     //     : programmatic.intent;
-    // return { intent: withTone, stats };
-    return { intent: await applyLlmPlanningRewrite(intent, userInput, null), stats };
+    // return withTone;
+    return await applyLlmPlanningRewrite(intent, userInput, null);
   } catch (error) {
-    return { intent: await applyLlmPlanningRewrite(intent, userInput, error), stats };
+    return await applyLlmPlanningRewrite(intent, userInput, error);
   }
 }
 /**
@@ -72,7 +79,8 @@ async function applyLlmPlanningRewrite(
   error?: unknown
 ): Promise<IntentResult> {
   const llmPlanned = await tryBuildPlanByExternalModel(intent, userInput, error);
-  if (llmPlanned) return llmPlanned;
+  if (llmPlanned) 
+    return llmPlanned;
   return applyLocalPlanningFallback(intent, userInput, error);
 }
 

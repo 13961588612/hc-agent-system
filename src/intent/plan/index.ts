@@ -1,13 +1,12 @@
 export { applyDeterministicDataQueryPlanning } from "./planner.js";
-export type { DeterministicPlanningStats } from "./planner.js";
 export {
   getIntentSeparateResultSchema,
   getIntentSeparateItemSchema,
   refreshIntentSeparateSchemaCache,
   resetIntentSeparateSchemaCacheForTests,
-  buildIntentSeparateSchemas,
-  type IntentSeparateResult
+  buildIntentSeparateSchemas
 } from "../../../separate/intentSeparateSchema.js";
+export type { IntentSeparateResult } from "../../../separate/IntentSeparateType.js";
 export { buildSeedIntentResultFromIntentSeparate } from "./intentSeparateSeed.js";
 export {
   getReusableStepTemplate,

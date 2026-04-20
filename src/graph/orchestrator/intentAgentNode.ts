@@ -6,10 +6,7 @@ import { emitProgressByConfig } from "./progressReporter.js";
 
 function buildIntentProgressSteps(
   state: OrchestratorState,
-  out: Pick<
-    OrchestratorState,
-    "intentResult" | "highLevelDomain" | "intentPlanningStats"
-  >
+  out: Pick<OrchestratorState, "intentResult" | "highLevelDomain">
 ): string[] {
   const steps: string[] = [];
   const ir = out.intentResult;
@@ -38,9 +35,6 @@ function buildIntentProgressSteps(
 
   const taskCount = ir?.planningTasks?.length ?? 0;
   steps.push(`步骤3：任务规划完成（planningTasks=${taskCount}）`);
-  const hit = out.intentPlanningStats?.reuseHit ?? 0;
-  const miss = out.intentPlanningStats?.reuseMiss ?? 0;
-  steps.push(`步骤3-复用：可复用计划命中=${hit}，未命中=${miss}`);
   return steps;
 }
 
